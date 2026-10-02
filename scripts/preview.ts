@@ -109,9 +109,11 @@ function main(): void {
   codex.costTodayUsd = extractCostToday(codexCost);
   codex.tokensToday = extractTokensToday(codexCost);
   const claude = normalizeUsageResponse(loadFixture("codexbar-usage-claude.json"), "claude");
-  const minimax = normalizeUsageResponse(loadFixture("codexbar-usage-minimax.json"), "minimax");
-  // Providers are discovered from CodexBar; here three are enabled, 4th blank.
-  const usages = [codex, claude, minimax];
+  const commandcode = normalizeUsageResponse(loadFixture("codexbar-usage-commandcode.json"), "commandcode");
+  const perplexity = normalizeUsageResponse(loadFixture("codexbar-usage-perplexity.json"), "perplexity");
+  // Showcase both rolling quotas and credit allowances. Actual providers are
+  // auto-discovered from CodexBar and can extend beyond these four examples.
+  const usages = [codex, claude, commandcode, perplexity];
   const segs = renderLcdSegments(usages, { nowMs: NOW_MS, stale: false, numberMode: "remaining" });
   segs.forEach((svg, i) => writeFileSync(join(outDir, `lcd-${i + 1}.png`), svgToPng(svg, SEG_W)));
   // Pace-mode variant (the rightmost-dial toggle), for visual review.

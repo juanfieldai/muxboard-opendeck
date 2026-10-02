@@ -3,7 +3,8 @@
 > Monitor your [cmux](https://cmux.com/), [Orca](https://onorca.dev), and
 > [Herdr](https://herdr.dev) AI coding
 > agents (Claude Code, Codex, Pi, OMP) from an Elgato Stream Deck+: which agents
-> need attention show on the keys, and your CodexBar usage limits show on the LCD.
+> need attention show on the keys, and your CodexBar quotas, spend, and credits
+> show on the LCD.
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)
@@ -12,16 +13,20 @@
 
 ![Muxboard dashboard](docs/images/dashboard.png)
 
-Muxboard turns the 8 keys of an Elgato Stream Deck+ into a queue of
+Muxboard turns the 8 keys of an Elgato Stream Deck+ into a shared queue of
 [cmux](https://cmux.com/) panes, [Orca](https://onorca.dev) worktrees, and
 [Herdr](https://herdr.dev) sessions whose coding agents (Claude Code, Codex, Pi,
-[OMP](https://github.com/can1357/oh-my-pi), or any other) have finished, failed,
-gotten blocked, or are waiting for your input. Orca and Herdr are auto-detected;
-Herdr includes named local sessions and saved SSH machines (see
-[Orca support](#orca-support) and [Herdr support](#herdr-support)). The LCD touch
-strip shows CodexBar usage per provider: session and weekly quota with pace, plus
-spend and tokens — or, for credit-metered providers (CommandCode, Perplexity), a
-single credit gauge showing spend against the allowance.
+[OMP](https://github.com/can1357/oh-my-pi), or any other) are working, waiting,
+blocked, failed, or have unread results. Agents needing you stay up front;
+each key shows its state, age, and source, and pressing it reveals the existing
+workspace or pane. Orca and Herdr are auto-detected, and Herdr includes named
+local sessions and saved SSH machines (see [Orca support](#orca-support) and
+[Herdr support](#herdr-support)). The LCD touch strip shows usage for every
+enabled CodexBar provider, including Codex, Claude, MiniMax, Kimi, CommandCode,
+and Perplexity: session and weekly quotas with reset countdowns and pace,
+today's spend and tokens when available, and credit usage and allowances.
+CommandCode can show rolling quotas alongside its monthly grant; credit-only
+accounts and Perplexity use a credit gauge.
 
 The newest attention item is key 1 (top-left); the queue fills left-to-right,
 top-to-bottom:
@@ -59,7 +64,7 @@ profile. To build from source instead, see [Quick start](#quick-start).
 | Surface | Shows | Source |
 | --- | --- | --- |
 | 8 keys | Attention queue: agent glyph, status, repo, age | `cmux list-notifications --json`, `orca worktree ps --json`, Herdr `api snapshot` (local + saved SSH machines) (Orca/Herdr auto-detected) |
-| LCD strip (4×200×100) | One CodexBar provider per segment: session + weekly quota with pace, spend + tokens — or a single credit gauge (spend/allowance) for credit-metered providers | `codexbar serve` HTTP |
+| LCD strip (4×200×100) | One enabled CodexBar provider per segment: session + weekly quotas, reset countdowns, pace, today's spend + tokens, and credit/grant usage; credit-only providers use one gauge | `codexbar serve` HTTP |
 | 4 dials | Scroll, filter, quota view, refresh | local state |
 
 > When using cmux, its control socket rejects processes outside a
@@ -86,9 +91,10 @@ profile. To build from source instead, see [Quick start](#quick-start).
 - The LCD shows one segment per CodexBar provider, auto-discovered from CodexBar
   rather than a hardcoded list. Each segment carries the provider name in
   CodexBar's brand color, the session and weekly gauges with their reset times,
-  and a footer with today's spend and tokens — while credit-metered providers
-  show a single credit gauge and a spend/allowance footer — so all your providers
-  are visible at once.
+  and a footer with today's spend and tokens when available. CommandCode can
+  show its monthly grant alongside rolling quotas; credit-only accounts and
+  Perplexity show a credit gauge and a spend/allowance footer. Four providers
+  are visible at once; dial 4 rotates through any additional providers.
 - Each gauge also carries a calm **pace** marker, comparing how much quota you've
   used against how far through the window the clock is: a faded same-hue
   extension toward where you "should" be when you're under the clock (in reserve,
@@ -408,13 +414,19 @@ both payload shapes CodexBar emits:
 - Codex exposes `primary`/`secondary` windows at the top level.
 - Claude and others nest them under `usage`.
 
+The provider list is discovered from CodexBar, rather than limited to the
+examples in the dashboard image. Enabled Codex, Claude, MiniMax, Kimi, Gemini,
+CommandCode, Perplexity, and other providers exposed by the server share the
+same LCD; `codexbarProviders` can restrict or reorder them.
+
 Each window provides `usedPercent`, `resetsAt`, `windowMinutes`, and a
 `resetDescription`; for ordinary rate-limit providers, `primary` is usually the
 session (5h) and `secondary` the weekly (7d) window.
 
-Credit-metered providers don't use the session/weekly model: they spend against
-an allowance, and muxboard renders them as a single credit gauge plus a
-spend/allowance footer instead of the two rate-limit gauges. CommandCode carries
+Credit allowances can accompany rolling quotas or replace them. Muxboard
+keeps CommandCode's session/weekly gauges when both windows are reported and
+shows its grant in the footer. Credit-only accounts and Perplexity use a single
+credit gauge plus a spend/allowance footer. CommandCode carries
 its plan + dollars in a `loginMethod` string (`"Go · $0.00 of $10.00"`,
 optionally followed by a purchased-credit balance). Which window holds its
 monthly grant depends on the CodexBar build: up to v0.47.0 the grant is the only

@@ -5,7 +5,7 @@
   "Author": "mrshu",
   "UUID": "com.mrshu.muxboard",
   "Icon": "imgs/plugin/icon",
-  "Description": "Surfaces cmux panes, Orca worktrees, and Herdr local sessions and saved SSH machines on the 8 keys, with CodexBar quota telemetry on the LCD strip.",
+  "Description": "Stream Deck+ dashboard for cmux, Orca, and Herdr coding agents, with live attention keys and CodexBar quotas, pace, spend, tokens, and credits on the LCD.",
   "Category": "Muxboard",
   "CategoryIcon": "imgs/plugin/category",
   "CodePath": "bin/plugin.cjs",
