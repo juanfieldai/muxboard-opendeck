@@ -12,17 +12,18 @@
 
 ![Muxboard dashboard](docs/images/dashboard.png)
 
-Muxboard turns the 8 keys of an Elgato Stream Deck+ into a queue of
-[cmux](https://cmux.com/) panes whose coding agents (Claude Code, Codex, Pi,
-[OMP](https://github.com/can1357/oh-my-pi), or any other) have finished, failed,
-gotten blocked, or are waiting for your input. [Orca](https://onorca.dev)
-worktrees appear on the same keys when Orca is running (auto-detected; see
-[Orca support](#orca-support)). Herdr sessions and saved SSH machines also share the queue
-([Herdr support](#herdr-support)). For cmux to see OMP sessions at all, install its
-hook bridge once with `cmux hooks omp install` (cmux ≥ 0.64.17). The LCD touch
-strip shows CodexBar usage per provider: session and weekly quota with pace, plus
-spend and tokens — or, for credit-metered providers (CommandCode, Perplexity), a
-single credit gauge showing spend against the allowance.
+Muxboard turns the 8 keys of an Elgato Stream Deck+ into one attention queue for
+[cmux](https://cmux.com/) panes, [Orca](https://onorca.dev) worktrees, and
+[Herdr](https://herdr.dev) agent sessions. Follow Claude Code, Codex, Pi,
+[OMP](https://github.com/can1357/oh-my-pi), and other agents across local sessions
+and Herdr's saved SSH machines. Keys show agents asking for input, unread
+results, and work in progress, with a source badge to identify each backend.
+Orca and Herdr are auto-detected; use any available source or combine them.
+See [Orca support](#orca-support) and [Herdr support](#herdr-support).
+
+The LCD touch strip shows CodexBar usage per provider: session and weekly quota
+with pace, plus spend and tokens — or, for credit-metered providers (CommandCode,
+Perplexity), a single credit gauge showing spend against the allowance.
 
 The newest attention item is key 1 (top-left); the queue fills left-to-right,
 top-to-bottom:
@@ -33,8 +34,9 @@ top-to-bottom:
 ```
 
 Press a key to bring its source to the foreground and jump straight to that
-workspace or pane. Empty slots render muted. When cmux or CodexBar is
-unreachable, the display degrades gracefully and the rest keeps working:
+workspace or pane. Empty slots render muted. Each source keeps its last good
+data during an outage, and other sources keep working when cmux, Orca, Herdr,
+or CodexBar is unreachable:
 
 ![Offline state](docs/images/dashboard-offline.png)
 
@@ -62,19 +64,22 @@ profile. To build from source instead, see [Quick start](#quick-start).
 | LCD strip (4×200×100) | One CodexBar provider per segment: session + weekly quota with pace, spend + tokens — or a single credit gauge (spend/allowance) for credit-metered providers | `codexbar serve` HTTP |
 | 4 dials | Scroll, filter, quota view, refresh | local state |
 
-> Required cmux setting. cmux's control socket rejects processes outside a
+> When using cmux, its control socket rejects processes outside a
 > cmux session by default (`socketControlMode: cmuxOnly`), and the Stream Deck
 > app launches plugins outside any session. Set cmux Settings → Automation →
 > Socket Control Mode → Automation (then fully quit and relaunch cmux) so the
-> plugin is accepted. Without it, the keys stay on the muted "cmux offline"
-> state. See [Requirements](#requirements).
+> plugin is accepted. Without it, cmux is offline; Orca and Herdr can still
+> supply keys. See [Requirements](#requirements).
 
 - Keys are assigned to physical slots newest-first, with the panes that need you
   pinned ahead of those actively working. Agent, status, and age are fused from
-  several cmux signals (no terminal scraping); see
+  each source's structured status. For cmux's signals, see
   [How a pane's state is derived](#how-a-panes-state-is-derived).
-- Tapping a key runs `cmux open-notification --id <uuid>`, which focuses the
-  workspace + surface and marks the row read (it does not dismiss it).
+- Tapping a key focuses its source: cmux opens the notification's workspace and
+  surface, Orca selects the worktree's terminal, and Herdr reveals the existing
+  session in its current host before focusing the selected agent. Herdr resolves
+  direct terminal windows, Zellij, tmux, and cmux hosts without launching a new
+  terminal. Each Herdr agent has an independent key, even in the same workspace.
 - Long-pressing an attention key (hold ~0.6s) snoozes it locally for five
   minutes. It fires while you are still holding (you get a ✓); releasing does
   nothing more. Muxboard leaves the backend notification intact, and the key
@@ -100,19 +105,25 @@ profile. To build from source instead, see [Quick start](#quick-start).
 | 1 | Scroll the queue (when > 8 items) | Jump to newest item |
 | 2 | Cycle filter: all → claude → codex → omp → pi | Reset filter to all |
 | 3 | Toggle the quota number: remaining% ↔ pace (reserve/deficit) | Open CodexBar `/usage` |
-| 4 | Rotate the LCD provider window (when > 4 providers) | Force refresh both polls |
+| 4 | Rotate the LCD provider window (when > 4 providers) | Refresh all active sources and quota |
 
 ## Requirements
 
 - Node.js ≥ 20 (developed on v26).
-- cmux on your `PATH` (or set `cmuxBin`). Verified against cmux 0.64.16. To
-  enable automation: cmux Settings → Automation → Socket Control Mode →
+- At least one attention source: cmux, Orca, or Herdr. For Herdr, put its CLI on
+  `PATH` (or set `herdrBin`) and keep a local session or enabled saved SSH machine
+  running. An existing Herdr client must display the target machine for key
+  presses to reveal it. See [Herdr support](#herdr-support) for compatibility,
+  SSH authentication, and focus details. Orca requires a reachable runtime
+  (`orca status`); see [Orca support](#orca-support).
+- If using cmux, put it on your `PATH` (or set `cmuxBin`). Verified against cmux
+  0.64.16. To enable automation: cmux Settings → Automation → Socket Control Mode →
   Automation (or add `"automation": { "socketControlMode": "automation" }` to
   `~/.config/cmux/cmux.json`), then fully quit and relaunch cmux. This is
-  required for the keys to work; without it cmux rejects the plugin. Verify with
+  required for cmux keys; without it cmux rejects the plugin. Verify with
   `cmux capabilities | grep access_mode` (should read `"automation"`).
-- cmux agent hooks, for accurate live working/waiting state. The state and age
-  on each key come from cmux's agent event stream, which cmux emits from agent
+- If using cmux, install agent hooks for accurate live working/waiting state.
+  The state and age on each key come from cmux's agent event stream, emitted from
   hooks (injected automatically by cmux's Claude wrapper, for other agents run
   `cmux hooks setup`). They are not required to launch, but without them the keys
   fall back to the notification feed plus process CPU and can read stale (a wrong
@@ -121,6 +132,7 @@ profile. To build from source instead, see [Quick start](#quick-start).
   Check the feed is live: `cmux events --limit 5` should show recent
   `agent.hook.*` rows while an agent works. See
   [How a pane's state is derived](#how-a-panes-state-is-derived).
+  For OMP, install its hook bridge with `cmux hooks omp install` (cmux ≥ 0.64.17).
 - CodexBar for the LCD: Muxboard reads usage from `codexbar serve` over HTTP,
   defaulting to port 17777 (keeping CodexBar's own default 8080 free). Optional —
   the keys work without it. Don't run a bare `codexbar serve`, though: it can exit
@@ -157,8 +169,9 @@ show with no Stream Deck+ and no desktop app.
 
 ### Run on the device
 
-1. Enable cmux automation mode (see [Requirements](#requirements)) and relaunch
-   cmux.
+1. Start your attention source: Herdr sessions or saved SSH machines, Orca, or
+   cmux. If using cmux, enable automation mode (see [Requirements](#requirements))
+   and relaunch cmux.
 2. Install the Elgato Stream Deck desktop app.
 3. Build + link the plugin and start CodexBar:
    ```bash
@@ -171,7 +184,7 @@ show with no Stream Deck+ and no desktop app.
    # reopen the Stream Deck app, then pick the "Muxboard" profile from the
    # profile dropdown at the top of the window
    ```
-   Keys read cmux directly; the LCD reads CodexBar.
+   Keys merge cmux panes, Orca worktrees, and Herdr sessions; the LCD reads CodexBar.
 
 > Why a separate install step? Elgato's profile _importer_ rejects
 > programmatically-built `.streamDeckProfile` files ("content corrupted") on
@@ -182,7 +195,7 @@ show with no Stream Deck+ and no desktop app.
 
 ## The cmux notification contract
 
-Muxboard is driven entirely by cmux notifications: agents make a pane "need
+The cmux source consumes notifications: agents make a pane "need
 attention" by emitting one. cmux already does this for built-in agents; for
 custom agents, emit a notification (e.g. from an agent hook) shaped like the
 rows returned by `cmux list-notifications --json`:
@@ -266,8 +279,10 @@ Muxboard polls **all running local Herdr sessions**, including named sessions,
 and enabled saved SSH machine profiles, merging their agent panes with cmux and
 Orca. It polls saved machines through Herdr's noninteractive `--machine` API;
 it does not start stopped sessions or complete interactive SSH authentication.
-Each live terminal gets its own key, so two agents in one workspace and identically named panes in different sessions stay
-independent. A Herdr badge identifies the source.
+Each terminal needing attention or actively working gets its own key, so two
+agents in one workspace and identically named panes in different sessions stay
+independent. An **H** badge identifies Herdr, and the machine/session label
+distinguishes otherwise identical keys.
 
 Herdr's structured status drives the key: `working` sinks to the end, `blocked`
 shows **NEEDS YOU** (questions and approvals), and `done` shows an unseen
@@ -486,7 +501,8 @@ Stored in the plugin's global settings; all fields have safe defaults
 
 ```
   Stream Deck+ plugin ── spawns ──► cmux CLI ──► cmux socket (automation mode)
-        ├── CLI ──► Orca / Herdr local + saved SSH sessions (attention)
+        ├── CLI ──► Orca worktrees (attention)
+        ├── CLI ──► Herdr local sessions + saved SSH machines (attention)
         └── TCP ──► codexbar serve (LCD usage)
 
 src/
@@ -501,7 +517,7 @@ src/
     herdr/           snapshots, terminal identity, existing-host mapping + focus
     codexbar/        client (HTTP), normalize (dual-shape + error + cost)
     render/          palette, format, keyRender (SVG), lcdRender (SVG)
-    services/        store, cmux/codexbar poll loops, cmuxEvents (event stream)
+    services/        store, cmux/orca/herdr/codexbar polls, cmuxEvents (event stream)
   actions/           attentionKey (8 keys), dialStrip (4 dials): thin SDK glue
 scripts/             preview / validate / gen-icons / install-profile / dev.sh
 test/                fixtures + node:test suite

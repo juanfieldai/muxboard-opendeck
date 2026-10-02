@@ -2,11 +2,11 @@
 #
 # Build + install Muxboard, then watch for changes.
 #
-# Prerequisite: cmux must allow external automation. In cmux, set
+# When using cmux, it must allow external automation. In cmux, set
 #   Settings → Automation → Socket Control Mode → Automation
 # (or add `"automation": { "socketControlMode": "automation" }` to
 # ~/.config/cmux/cmux.json) and FULLY quit + relaunch cmux. Without it, cmux
-# rejects the Stream Deck plugin and the keys stay on the offline state.
+# rejects the Stream Deck plugin; Orca and Herdr keys remain available.
 #
 #   npm run dev
 #

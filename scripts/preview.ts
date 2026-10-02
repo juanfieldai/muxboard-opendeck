@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { normalizeNotifications } from "../src/core/cmux/normalize.js";
 import { normalizeWorktrees } from "../src/core/orca/normalize.js";
+import { normalizeHerdrAgent, type HerdrAgent, type HerdrSession } from "../src/core/herdr/normalize.js";
 import {
   normalizeUsageResponse,
   extractCostToday,
@@ -58,15 +59,41 @@ function main(): void {
   };
   const orcaRaw = loadFixture("orca-worktree-ps.json") as { result: { worktrees: unknown[] } };
   const orcaItems = normalizeWorktrees(orcaRaw.result.worktrees, new Date("2026-06-23T12:05:00Z").toISOString());
+  // Use the real adapter so Herdr's blocked -> NEEDS YOU and native done ->
+  // DONE semantics, source badge, and endpoint provenance match the device.
+  // Bootstrap snapshots intentionally have unknown historical age.
+  const herdrFixtures: Array<{ session: HerdrSession; agent: HerdrAgent }> = [
+    {
+      session: { name: "dev", socket_path: "/fixture/herdr-dev.sock", running: true },
+      agent: {
+        terminal_id: "terminal-api", pane_id: "pane-api", workspace_id: "workspace-api", tab_id: "tab-api",
+        agent: "claude", title: "review-api", agent_status: "blocked", state_change_seq: 12,
+      },
+    },
+    {
+      session: { name: "agents", socket_path: "remote:spark1:agents", running: true, machineId: "spark1", label: "spark1" },
+      agent: {
+        terminal_id: "terminal-db", pane_id: "pane-db", workspace_id: "workspace-db", tab_id: "tab-db",
+        agent: "codex", title: "migrate-db", agent_status: "done", state_change_seq: 18, completion_seq: 3,
+      },
+    },
+  ];
+  const herdrItems = herdrFixtures.flatMap(({ session, agent }) => {
+    const { item } = normalizeHerdrAgent(session, agent, "backend", undefined, NOW_MS);
+    return item ? [item] : [];
+  });
   const items = triageOrder([
-    ...base.map((it) =>
+    // Keep exactly eight tiles: omit redundant cmux waiting/working examples.
+    ...base.filter((it) => !["RoboCup CMS", "fieldtheory-cli"].includes(it.title)).map((it) =>
       it.title === "RCJ Scoreboard"
         ? { ...it, reason: "waiting" as const, activity: "waiting" as const, needsInput: true }
         : it,
     ),
     running,
     ...orcaItems,
+    ...herdrItems,
   ]);
+  if (items.length > KEY_COUNT) throw new Error("Preview requires a pager when more than eight items are present");
   const slots = assignSlots(items, 0);
   // Render the resting board (offset 0): the queue-position index only appears
   // once you scroll (col-0 dial), so omit slotNumber here to match the device.
@@ -97,7 +124,7 @@ function main(): void {
   writeFileSync(join(outDir, "dashboard.png"), svgToPng(composite(keySvgs, segs), 880));
 
   // --- Offline scenario (acceptance #6) ------------------------------------
-  const offlineKeys = [renderSourceOffline("cmux"), ...Array.from({ length: 7 }, (_, i) => renderEmptyKey(i + 2))];
+  const offlineKeys = [renderSourceOffline("cmux + orca + herdr"), ...Array.from({ length: 7 }, (_, i) => renderEmptyKey(i + 2))];
   const offlineSegs = renderLcdSegments([], { nowMs: NOW_MS, stale: true, numberMode: "remaining" });
   writeFileSync(join(outDir, "dashboard-offline.png"), svgToPng(composite(offlineKeys, offlineSegs), 880));
 
