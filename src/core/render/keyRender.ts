@@ -193,6 +193,14 @@ export function renderAllClear(label: string): string {
     <text x="${S / 2}" y="${S / 2 + 34}" font-size="15" font-weight="700" fill="#5b6b62">${escapeXml(label)}</text>`);
 }
 
+/** Empty source-filter result: retain the selected source and an escape hint. */
+export function renderFilteredEmpty(source: string, decisions: boolean): string {
+  const S = KEY_SIZE;
+  return tile("#3a3f48", 2, `<text x="${S / 2}" y="52" font-size="22" font-weight="800" fill="#b9c0cc">${escapeXml(source)}</text>
+    <text x="${S / 2}" y="83" font-size="15" fill="#9aa0aa">${decisions ? "no decisions" : "no matches"}</text>
+    <text x="${S / 2}" y="112" font-size="11" fill="#7f8794">press dial 2: all</text>`);
+}
+
 /**
  * Render the overflow tile shown on the last key when the queue has more items
  * than fit: a "+N more" count tinted by the most-severe hidden item's color, so

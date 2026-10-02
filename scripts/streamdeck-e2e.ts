@@ -464,11 +464,13 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
   });
   await scenario("changed host PID is discovered afresh on subsequent clicks", async () => {
     const focusCount = (await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).length;
+    const machineId = image("key0").includes("east") ? "e2e-east" : "e2e-west";
+    const applicationPid = String(71000 + 321 + Object.keys(state.machines).indexOf(machineId) * 10);
     state.hostPidOffset = 321; await save();
     await tap("key0");
-    await until("changed application PID activation", async () => (await calls()).some(c => c.kind === "osascript" && c.args.includes("71321")));
+    await until("changed application PID activation", async () => (await calls()).some(c => c.kind === "osascript" && c.args.includes(applicationPid)));
     await until("changed-host native focus finishes", async () => (await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).length > focusCount);
-    expect((await calls()).some(c => c.kind === "osascript" && c.args.includes("71321")), "activation uses current process ancestry instead of fixed app identity");
+    expect((await calls()).some(c => c.kind === "osascript" && c.args.includes(applicationPid)), "activation uses current process ancestry instead of fixed app identity");
   });
   await scenario("missing existing host reports an alert without acknowledging completion", async () => {
     state = { sessions: { alpha: [{ ...agent(90, "done", "hostFailure"), completion_seq: 1 }] }, machines: {}, modes: {}, focusError: false, hostMissing: true }; await save();
@@ -619,6 +621,82 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
     expect(native.sessions.alpha.every(a => a.agent_status === "idle" && a.completion_seq === undefined), "real old schema has no completion counter and tab focus marks both agents seen");
     expect(image("key0").includes("Old B") && image("key0").includes("DONE"), "locally observed sibling completion remains unread despite tab-wide native idle");
     expect((await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).at(-1)?.args.join(" ") === "--session alpha agent focus pane104", "only selected stable terminal acknowledged");
+  });
+  const sourceHold = async (label: string, visible: () => boolean) => {
+    send("dialDown", "dial1");
+    await until(label, visible);
+    send("dialUp", "dial1");
+    await pause(80);
+  };
+  const hasTitle = (title: string) => [...keySvg.values()].some(svg => svg.includes(`>${title}<`));
+  const herdrBadge = () => image("key0").includes(">HDR<");
+  await scenario("holding the agent dial selects unavailable cmux without resetting filters on release", async () => {
+    state = { sessions: { alpha: [agent(201, "blocked", "Cwait"),
+      { ...agent(203, "done", "Cdone"), completion_seq: 1 },
+      agent(202, "blocked", "Xwait"), agent(204, "working", "Xwork")] },
+      machines: {}, modes: {}, focusError: false, serverVersion: "0.9.3" }; await save();
+    await tap("dial3"); await until("source fixture", () => ["Cwait", "Cdone", "Xwait", "Xwork"].every(hasTitle));
+    rotate(1, 1);
+    await until("Claude before source hold", () => hasTitle("Cwait") && hasTitle("Cdone") && !hasTitle("Xwait"));
+    expect(!hasTitle("Xwork"), "agent rotation filters before choosing a source");
+    await sourceHold("cmux source unavailable", () => image("key0").includes("cmux") && image("key0").includes("offline"));
+    expect(image("key0").includes("cmux") && image("key0").includes("offline") && !image("key0").includes("herdr"), "release retains selected unavailable cmux instead of clearing filters");
+  });
+  await scenario("a second source hold identifies inactive Orca as unavailable", async () => {
+    await sourceHold("inactive Orca source", () => image("key0").includes("orca") && image("key0").includes("offline"));
+    expect(image("key0").includes("orca") && image("key0").includes("offline"), "inactive selected source has its own availability label");
+    expect(![...keySvg.values()].some(svg => svg.includes("Cwait")), "other source's agents stay hidden");
+  });
+  await scenario("a third source hold shows Herdr while preserving the previous Claude filter", async () => {
+    await sourceHold("Herdr with Claude", () => herdrBadge() && hasTitle("Cwait") && hasTitle("Cdone"));
+    expect(herdrBadge(), "selected-source HDR badge appears on the key grid");
+    expect(!hasTitle("Xwait") && !hasTitle("Xwork"), "holding and releasing source cycling preserves the agent filter");
+    expect(image("key2").includes('fill="#22252b"'), "only two matching Herdr Claude agents occupy keys");
+  });
+  await scenario("source and agent filters intersect and explain a healthy empty selection", async () => {
+    rotate(1, 1);
+    await until("Herdr Codex intersection", () => herdrBadge() && hasTitle("Xwait") && hasTitle("Xwork") && !hasTitle("Cwait"));
+    expect(!hasTitle("Cdone"), "agent rotation changes results within the selected source");
+    rotate(1, 1);
+    await until("Herdr agent filter with no matches", () => image("key0").includes("herdr") && image("key0").includes("no matches"));
+    expect(!image("key0").includes("offline"), "healthy source with no matching agent is not reported offline");
+    expect(image("key1").includes('fill="#22252b"'), "empty selection clears stale agent tiles");
+    await tap("dial2");
+    await until("empty selected-source Decisions", () => image("key0").includes("herdr") && image("key0").includes("no decisions"));
+    expect(image("key0").includes(">herdr<") && image("key0").includes("press dial 2: all"), "empty selected-source Decisions identifies the source and reset gesture");
+    expect(!image("key0").includes("offline"), "empty Decisions selection remains healthy");
+    await tap("dial2");
+    await until("empty selected-source queue", () => image("key0").includes("no matches"));
+    rotate(1, -1); rotate(1, -1);
+    await until("restore Herdr Claude", () => herdrBadge() && hasTitle("Cwait") && hasTitle("Cdone"));
+  });
+  await scenario("source and agent filters survive refresh and compose with the Decisions badge", async () => {
+    await tap("dial2");
+    await until("Herdr Decisions", () => image("key0").includes(">H DEC<") && hasTitle("Cwait"));
+    expect(!hasTitle("Cdone") && !hasTitle("Xwait"), "Decisions intersects both source and agent filters");
+    const requests = httpRequests;
+    await tap("dial3"); await until("filtered refresh", () => httpRequests > requests);
+    await pause(150);
+    expect(image("key0").includes(">H DEC<") && hasTitle("Cwait") && !hasTitle("Xwait"), "refresh retains source agent and view selection");
+    send("touchTap", "dial2", { tapPos: { x: 50, y: 50 }, hold: false });
+    await until("filtered queue restored", () => herdrBadge() && hasTitle("Cdone"));
+  });
+  await scenario("short agent-dial press clears both source and agent filters", async () => {
+    await tap("dial1");
+    await until("all filters cleared by press", () => ["Cwait", "Cdone", "Xwait", "Xwork"].every(hasTitle) && !herdrBadge());
+    expect(["Cwait", "Cdone", "Xwait", "Xwork"].every(hasTitle), "short press restores agents from every agent kind");
+    expect(![...keySvg.values()].some(svg => svg.includes(">HDR<")), "short press also resets source selection");
+  });
+  await scenario("agent-segment touch clears both filters after independent source cycling", async () => {
+    rotate(1, 1);
+    await until("Claude selected again", () => hasTitle("Cwait") && !hasTitle("Xwait"));
+    await sourceHold("cmux selected again", () => image("key0").includes("cmux") && image("key0").includes("offline"));
+    await sourceHold("Orca selected again", () => image("key0").includes("orca") && image("key0").includes("offline"));
+    await sourceHold("Herdr selected again", () => herdrBadge() && hasTitle("Cwait"));
+    send("touchTap", "dial1", { tapPos: { x: 50, y: 50 }, hold: false });
+    await until("all filters cleared by touch", () => ["Cwait", "Cdone", "Xwait", "Xwork"].every(hasTitle) && !herdrBadge());
+    expect(hasTitle("Xwait") && hasTitle("Xwork"), "touch clears the preserved Claude agent filter");
+    expect(!herdrBadge(), "touch clears selected Herdr source");
   });
   if (protocolError) throw protocolError;
   console.log(`\n${scenarios} protocol/process E2E scenarios passed; ${assertions} explicit assertions; ${messages.filter(m => m.event === "setImage" || m.event === "setFeedback").length} SDK SVG messages decoded.`);

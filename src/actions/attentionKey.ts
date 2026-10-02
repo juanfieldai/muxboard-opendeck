@@ -9,7 +9,7 @@ import {
 } from "@elgato/streamdeck";
 import type { Runtime } from "../runtime.js";
 import { assignSlots, coordinatesToSlot, itemRank, KEY_COUNT } from "../core/cmux/sort.js";
-import { renderKey, renderEmptyKey, renderAllClear, renderOverflow, renderPagerHome, renderSourceOffline } from "../core/render/keyRender.js";
+import { renderKey, renderEmptyKey, renderAllClear, renderFilteredEmpty, renderOverflow, renderPagerHome, renderSourceOffline } from "../core/render/keyRender.js";
 import type { AttentionItem } from "../core/types.js";
 import { HoldTimer, SvgCache } from "./svgCache.js";
 import { message } from "../core/services/logger.js";
@@ -146,9 +146,12 @@ export class AttentionKeyAction extends SingletonAction {
       { name: "cmux", active: true, offline: state.cmuxOffline },
       { name: "orca", active: state.orcaActive, offline: state.orcaOffline },
       { name: "herdr", active: state.herdrActive, offline: state.herdrOffline },
-    ].filter((source) => source.active);
-    const allDown = sources.every((source) => source.offline);
+    ].filter((source) => state.sourceFilter === "all" ? source.active : source.name === state.sourceFilter);
+    const allDown = sources.every((source) => !source.active || source.offline);
     const decisions = state.view === "decisions";
+    const sourceBadge = state.sourceFilter === "all" ? undefined :
+      { cmux: "CMX", orca: "ORC", herdr: "HDR" }[state.sourceFilter];
+    const viewBadge = sourceBadge ? decisions ? `${sourceBadge[0]} DEC` : sourceBadge : decisions ? "DEC" : undefined;
     // The index shows the item's ABSOLUTE position in the queue, not the
     // physical key — so scrolling (col-0 dial) reveals 9, 10, 11… and you can
     // see how deep into a long queue this key is. Hidden until you actually
@@ -156,6 +159,8 @@ export class AttentionKeyAction extends SingletonAction {
     const queuePos = state.offset > 0 ? state.offset + slot + 1 : undefined;
     if (allDown && slot === 0 && state.items.length === 0) {
       svg = renderSourceOffline(sources.map((source) => source.name).join(" + "));
+    } else if (state.sourceFilter !== "all" && state.items.length === 0) {
+      svg = slot === 0 ? renderFilteredEmpty(state.sourceFilter, decisions) : renderEmptyKey(slot + 1);
     } else if (decisions && state.items.length === 0 && !allDown) {
       // Decisions view, nothing pending: a calm "all clear" tile, not blank dots.
       svg = slot === 0 ? renderAllClear("no decisions") : renderEmptyKey(slot + 1);
@@ -168,7 +173,7 @@ export class AttentionKeyAction extends SingletonAction {
     } else {
       const item = assignSlots(state.items, state.offset)[slot];
       svg = item
-        ? renderKey(item, { nowMs: Date.now(), slotNumber: queuePos, viewBadge: decisions ? "DEC" : undefined })
+        ? renderKey(item, { nowMs: Date.now(), slotNumber: queuePos, viewBadge })
         : renderEmptyKey(slot + 1);
     }
 

@@ -4,6 +4,7 @@ import type {
   AttentionItem,
   AttentionSource,
   ProviderUsage,
+  SourceFilter,
   WorkspaceStatus,
 } from "../types.js";
 import { attentionEntityKey } from "../types.js";
@@ -21,6 +22,7 @@ type Listener = (state: AppState) => void;
 
 /** Cycle order for the agent filter (dial 2). */
 const FILTER_CYCLE: AgentFilter[] = ["all", "claude", "codex", "omp", "pi"];
+const SOURCE_FILTER_CYCLE: SourceFilter[] = ["all", "cmux", "orca", "herdr"];
 
 /** Number of LCD touch-strip segments (one per dial). */
 const LCD_SEGMENTS = 4;
@@ -73,6 +75,7 @@ export class Store {
       items: [],
       offset: 0,
       filter: "all",
+      sourceFilter: "all",
       view: "queue",
       lcdNumberMode: "remaining",
       cmuxOffline: false,
@@ -109,11 +112,13 @@ export class Store {
     // poll drops it from the notification list.
     const merged = Object.values(this.itemsBySource).flat().filter((it) => !this.isCleared(it));
     const allItems = sortNewestFirst(merged);
-    // Filter by agent, collapse to the newest item per workspace (one key per
-    // repo), enrich with live event status, then pin exceptions
+    const sourceItems = this.state.sourceFilter === "all"
+      ? allItems : allItems.filter(it => it.source === this.state.sourceFilter);
+    // Filter by source and agent, collapse to the newest item per workspace
+    // (one key per repo), enrich with live event status, then pin exceptions
     // (failed/permission) to the front for triage. Enrichment happens BEFORE
     // triageOrder so an event-driven "working" sinks the pane correctly.
-    const enriched = dedupeNewestPerWorkspace(applyFilter(allItems, this.state.filter))
+    const enriched = dedupeNewestPerWorkspace(applyFilter(sourceItems, this.state.filter))
       // Drop snoozed workspaces (long-press) until their window passes; an
       // expired snooze auto-reverts here so the item silently returns.
       .filter((it) => !this.isSnoozed(it))
@@ -345,6 +350,27 @@ export class Store {
   resetFilter(): void {
     if (this.state.filter === "all") return;
     this.state = { ...this.state, filter: "all", offset: 0 };
+    this.recompute();
+    this.emit();
+  }
+
+  /** Restrict the visible queue without changing any backend's cached items. */
+  setSourceFilter(sourceFilter: SourceFilter): void {
+    if (this.state.sourceFilter === sourceFilter) return;
+    this.state = { ...this.state, sourceFilter, offset: 0 };
+    this.recompute();
+    this.emit();
+  }
+
+  cycleSourceFilter(dir: 1 | -1 = 1): void {
+    const index = SOURCE_FILTER_CYCLE.indexOf(this.state.sourceFilter);
+    this.setSourceFilter(SOURCE_FILTER_CYCLE[wrap(index + dir, SOURCE_FILTER_CYCLE.length)]);
+  }
+
+  /** Clear both independent queue filters and return to the first key. */
+  resetFilters(): void {
+    if (this.state.filter === "all" && this.state.sourceFilter === "all" && this.state.offset === 0) return;
+    this.state = { ...this.state, filter: "all", sourceFilter: "all", offset: 0 };
     this.recompute();
     this.emit();
   }

@@ -154,3 +154,67 @@ test("dial: a failed setFeedback is retried on the next store emit", async () =>
   await tick();
   assert.equal(calls, 2, "failed setFeedback must be retried on the next emit");
 });
+
+test("dial 2: holding selects a source without clearing agent type or resetting on release", async () => {
+  const store = new Store();
+  store.cycleFilter(1);
+  const action = new DialStripAction(makeRuntime(store));
+  const dial: any = { id: "source-dial", coordinates: { column: 1, row: 0 } };
+  await action.onDialDown({ action: dial } as any);
+  assert.equal(store.getState().filter, "claude");
+  assert.equal(store.getState().sourceFilter, "all");
+  await new Promise(resolve => setTimeout(resolve, 650));
+  assert.equal(store.getState().sourceFilter, "cmux");
+  action.onDialUp({ action: dial } as any);
+  assert.equal(store.getState().sourceFilter, "cmux");
+  assert.equal(store.getState().filter, "claude");
+  await action.onDialDown({ action: dial } as any);
+  action.onDialUp({ action: dial } as any);
+  assert.equal(store.getState().sourceFilter, "all");
+  assert.equal(store.getState().filter, "all");
+});
+
+test("dial 2: touch clears both filters and disappearance cancels source selection", async () => {
+  const store = new Store();
+  store.cycleFilter(1);
+  store.setSourceFilter("herdr");
+  const action = new DialStripAction(makeRuntime(store));
+  const dial: any = { id: "disappearing-source-dial", coordinates: { column: 1, row: 0 } };
+  await action.onDialDown({ action: dial } as any);
+  action.onWillDisappear({ action: dial } as any);
+  await new Promise(resolve => setTimeout(resolve, 650));
+  assert.equal(store.getState().sourceFilter, "herdr");
+  assert.equal(store.getState().filter, "claude");
+  await action.onTouchTap({ action: dial } as any);
+  assert.equal(store.getState().sourceFilter, "all");
+  assert.equal(store.getState().filter, "all");
+});
+
+test("source filter stays visible on populated, empty, decisions, and offline boards", async () => {
+  const store = new Store();
+  const action = new AttentionKeyAction(makeRuntime(store));
+  let svg = "";
+  const key = { ...fakeKey(async () => {}), setImage: async (uri: string) => { svg = Buffer.from(uri.split(",")[1], "base64").toString(); } };
+  action.onWillAppear({ action: key } as any);
+  store.setHerdrActive(true);
+  store.setSourceFilter("herdr");
+  assert.match(svg, />herdr</);
+  assert.match(svg, />no matches</);
+  assert.match(svg, /press dial 2: all/);
+  store.setAttention([{ ...makeItem("herdr task"), source: "herdr", entityKey: "herdr:one" }], false, "herdr");
+  assert.match(svg, />HDR</);
+  assert.match(svg, />herdr</);
+  assert.match(svg, />task</);
+  store.setAttention([{ ...makeItem("herdr task"), source: "herdr", entityKey: "herdr:one", needsInput: true }], false, "herdr");
+  store.cycleView();
+  assert.match(svg, />H DEC</);
+  store.setAttention([], false, "herdr");
+  assert.match(svg, />herdr</);
+  assert.match(svg, />no decisions</);
+  store.setSourceOffline("herdr", true);
+  assert.match(svg, />herdr</);
+  assert.match(svg, />offline</);
+  store.setSourceFilter("orca");
+  assert.match(svg, />orca</);
+  assert.match(svg, />offline</);
+});

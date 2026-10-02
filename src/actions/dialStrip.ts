@@ -23,7 +23,7 @@ import { message } from "../core/services/logger.js";
  * provider (provider 0..3, in config order). The column (0..3) selects the
  * dial's behavior:
  *   col 0  rotate=scroll attention      press=jump to newest
- *   col 1  rotate=cycle agent filter    press=reset filter
+ *   col 1  rotate=cycle agent filter    press=clear filters (hold=cycle source)
  *   col 2  rotate=toggle number mode    press=switch view (hold=CodexBar /usage)
  *   col 3  rotate=rotate providers       press=force refresh
  */
@@ -32,9 +32,9 @@ export class DialStripAction extends SingletonAction {
   private readonly runtime: Runtime;
   private readonly dials = new Map<string, DialAction>();
   private readonly svgCache = new SvgCache();
-  /** Col-2 hold bookkeeping (fires /usage while the dial is still pressed). */
+  /** Hold bookkeeping for source selection and opening CodexBar usage. */
   private readonly holds = new HoldTimer();
-  /** Hold this long on the col-2 dial to open /usage instead of switching view. */
+  /** Hold threshold for source selection (col 1) and CodexBar usage (col 2). */
   private static readonly HOLD_MS = 600;
 
   constructor(runtime: Runtime) {
@@ -87,6 +87,12 @@ export class DialStripAction extends SingletonAction {
     // otherwise leave a pending timer that fires mid-press.
     this.holds.release(ev.action.id);
     const col = ev.action.coordinates?.column ?? 0;
+    if (col === 1) {
+      this.holds.arm(ev.action.id, DialStripAction.HOLD_MS, () =>
+        this.runtime.store.cycleSourceFilter(),
+      );
+      return;
+    }
     if (col === 2) {
       // col-2 push = switch board view (on release); hold 600ms = open /usage.
       // Mirrors the key long-press: a tap toggles, a hold does the heavier action.
@@ -99,9 +105,11 @@ export class DialStripAction extends SingletonAction {
   }
 
   override onDialUp(ev: DialUpEvent): void {
-    // The hold already opened /usage; the release does nothing more.
+    // A completed hold already handled the action; release does nothing more.
     if (this.holds.release(ev.action.id)) return;
-    if ((ev.action.coordinates?.column ?? 0) === 2) this.runtime.store.cycleView();
+    const col = ev.action.coordinates?.column ?? 0;
+    if (col === 1) this.runtime.store.resetFilters();
+    else if (col === 2) this.runtime.store.cycleView();
   }
 
   override async onTouchTap(ev: TouchTapEvent): Promise<void> {
@@ -129,7 +137,7 @@ export class DialStripAction extends SingletonAction {
         break;
       }
       case 1:
-        this.runtime.store.resetFilter();
+        this.runtime.store.resetFilters();
         break;
       // col 2 (switch view / hold = /usage) is handled in onDialDown/onDialUp +
       // onTouchTap, so it never reaches handlePress.

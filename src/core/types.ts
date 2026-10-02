@@ -22,6 +22,8 @@ export function toAgentKind(id: string): AgentKind {
 
 /** Which backend an attention item originates from. */
 export type AttentionSource = "cmux" | "orca" | "herdr";
+/** Optional backend filter, combined with the agent-type filter. */
+export type SourceFilter = "all" | AttentionSource;
 
 /** Live workspace state from cmux's agent event stream (set_status mirror). */
 export type WorkspaceState = "running" | "needs" | "idle";
@@ -193,6 +195,8 @@ export interface AppState {
   offset: number;
   /** Active agent filter (dial 2). */
   filter: AgentFilter;
+  /** Selected attention backend, or all sources. */
+  sourceFilter: SourceFilter;
   /** Which board the 8 keys show (toggled by the col-2 dial push). */
   view: AppView;
   /** Which number the LCD quota rows show (toggled by the third dial). */

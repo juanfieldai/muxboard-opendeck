@@ -107,9 +107,16 @@ profile. To build from source instead, see [Quick start](#quick-start).
 | Dial | Rotate | Press |
 | --- | --- | --- |
 | 1 | Scroll the queue (when > 8 items) | Focus the first visible item |
-| 2 | Cycle filter: all → claude → codex → omp → pi | Reset filter to all |
+| 2 | Cycle agent type: all → claude → codex → omp → pi | Clear both filters; hold ~0.6s to cycle source: all → cmux → Orca → Herdr |
 | 3 | Toggle the quota number: remaining% ↔ pace (reserve/deficit) | Switch Queue ↔ Decisions; hold ~0.6s to open CodexBar `/usage` |
 | 4 | Rotate the LCD provider window (when > 4 providers) | Refresh all active sources and quota |
+
+Agent type and source filters work together: select Claude, then hold dial 2
+until Herdr is selected to show only Claude agents in Herdr. Release after each
+hold to advance one source. Keys show **CMX**, **ORC**, or **HDR** while a source
+is selected; Decisions adds **C DEC**, **O DEC**, or **H DEC**. Empty results
+name the selected source, and an unavailable source shows its own offline state.
+A short press or a touch on dial 2 clears both filters.
 
 ## Requirements
 
@@ -587,9 +594,10 @@ creates only uniquely named `muxboard-e2e-*` sessions, and removes those session
 in cleanup. It does not change the default session or existing user sessions.
 
 The Stream Deck suite runs the built plugin against a real SDK WebSocket peer
-with controlled CLI and HTTP fixtures: 42 scenarios and 85 assertions cover
-rendering, source routing, existing-host focus, and completion acknowledgement
-across plugin restarts and tab-wide native seen changes. It simulates device hardware
+with controlled CLI and HTTP fixtures: 49 scenarios and 103 assertions cover
+rendering, source and agent filters, source routing, existing-host focus, and
+completion acknowledgement across plugin restarts and tab-wide native seen
+changes. It simulates device hardware
 and services; it does not connect to live SSH machines or use physical keys.
 
 ## Troubleshooting

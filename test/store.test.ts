@@ -192,6 +192,106 @@ test("the filter cycle includes omp before pi, then wraps to all", () => {
   assert.deepEqual(seen, ["claude", "codex", "omp", "pi", "all", "claude"]);
 });
 
+test("source filter isolates the same agent across all three backends", () => {
+  const store = new Store();
+  assert.equal(store.getState().sourceFilter, "all");
+  for (const source of ["cmux", "orca", "herdr"] as const) {
+    store.setAttention([mkItem({ id: source, source, workspaceId: "shared", agent: "claude" })], false, source);
+  }
+  assert.equal(store.getState().items.length, 3);
+  store.cycleFilter(1);
+  for (const source of ["cmux", "orca", "herdr"] as const) {
+    store.setSourceFilter(source);
+    assert.equal(store.getState().filter, "claude");
+    assert.deepEqual(store.getState().items.map(item => item.source), [source]);
+  }
+  store.setSourceFilter("all");
+  assert.equal(store.getState().items.length, 3);
+});
+
+test("source and agent filters intersect before Decisions and terminal deduplication", () => {
+  const store = new Store();
+  store.setAttention([mkItem({ id: "cmux-decision", needsInput: true })], false, "cmux");
+  store.setAttention([mkItem({ id: "orca-decision", source: "orca", reason: "failed" })], false, "orca");
+  store.setAttention([
+    herdrItem("default", "one", { id: "stale", reason: "waiting", createdAt: "2026-06-20T11:00:00Z" }),
+    herdrItem("default", "one", { id: "needs", needsInput: true }),
+    herdrItem("default", "two", { id: "codex-needs", agent: "codex", needsInput: true }),
+    herdrItem("default", "three", { id: "working", activity: "working" }),
+  ], false, "herdr");
+  store.setSourceFilter("herdr");
+  store.cycleFilter(1);
+  assert.deepEqual(store.getState().items.map(item => item.id), ["needs", "working"]);
+  store.cycleView();
+  assert.deepEqual(store.getState().items.map(item => item.id), ["needs"]);
+  store.resetFilter();
+  assert.equal(store.getState().sourceFilter, "herdr");
+  assert.deepEqual(store.getState().items.map(item => item.id).sort(), ["codex-needs", "needs"]);
+  store.resetFilters();
+  assert.equal(store.getState().sourceFilter, "all");
+  assert.equal(store.getState().filter, "all");
+  assert.equal(store.getState().view, "decisions");
+  assert.equal(store.getState().items.length, 4);
+});
+
+test("source cycle wraps in both directions and source changes reset offset", () => {
+  const store = new Store();
+  store.setAttention(Array.from({ length: 12 }, (_, index) => mkItem({ id: `w${index}` })), false);
+  store.scrollBy(3);
+  assert.equal(store.getState().offset, 3);
+  store.cycleSourceFilter();
+  assert.equal(store.getState().sourceFilter, "cmux");
+  assert.equal(store.getState().offset, 0);
+  const seen = [store.getState().sourceFilter];
+  for (let i = 0; i < 4; i++) { store.cycleSourceFilter(); seen.push(store.getState().sourceFilter); }
+  assert.deepEqual(seen, ["cmux", "orca", "herdr", "all", "cmux"]);
+  store.setSourceFilter("all");
+  store.cycleSourceFilter(-1);
+  assert.equal(store.getState().sourceFilter, "herdr");
+  store.cycleSourceFilter(-1);
+  assert.equal(store.getState().sourceFilter, "orca");
+  store.setSourceFilter("cmux");
+  store.scrollBy(3);
+  store.cycleFilter(1);
+  store.resetFilter();
+  assert.equal(store.getState().sourceFilter, "cmux");
+  store.cycleFilter(1);
+  store.scrollBy(3);
+  assert.equal(store.getState().filter, "claude");
+  assert.equal(store.getState().offset, 3);
+  store.resetFilters();
+  assert.equal(store.getState().sourceFilter, "all");
+  assert.equal(store.getState().filter, "all");
+  assert.equal(store.getState().offset, 0);
+});
+
+test("source filtering preserves hidden source updates, snoozes, and native removals", () => {
+  let now = 1_000_000;
+  const store = new Store([], () => now);
+  const one = herdrItem("default", "one");
+  const two = herdrItem("default", "two");
+  store.setAttention([mkItem({ id: "cmux" })], false, "cmux");
+  store.setAttention([mkItem({ id: "orca", source: "orca" })], false, "orca");
+  store.setAttention([one, two], false, "herdr");
+  store.setSourceFilter("herdr");
+  store.snoozeItem(one, 5000);
+  store.setSourceFilter("cmux");
+  store.setAttention([herdrItem("default", "one", { title: "updated while hidden" }), two], false, "herdr");
+  store.setAttention([mkItem({ id: "orca-new", source: "orca" })], false, "orca");
+  assert.deepEqual(store.getState().items.map(item => item.id), ["cmux"]);
+  store.setSourceFilter("herdr");
+  assert.deepEqual(store.getState().items.map(item => item.id), [two.id]);
+  now += 5001;
+  store.setSourceFilter("all");
+  assert.equal(store.getState().items.find(item => item.entityKey === one.entityKey)?.title, "updated while hidden");
+  assert.ok(store.getState().items.some(item => item.id === "orca-new"));
+  store.setSourceFilter("cmux");
+  store.setAttention([two], false, "herdr");
+  store.setAttention([], false, "orca");
+  store.setSourceFilter("all");
+  assert.deepEqual(store.getState().items.map(item => item.id).sort(), ["cmux", two.id]);
+});
+
 test("the Decisions view (col-2 push) shows only the panes that want a human", () => {
   const mk = (over: Partial<AttentionItem> & { id: string }): AttentionItem => ({
     source: "cmux", agent: "claude", workspaceId: over.id, title: over.id,
