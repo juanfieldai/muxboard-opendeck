@@ -277,6 +277,12 @@ same tab was viewed. `unknown` never implies completion. Known Claude, Codex, Pi
 visuals; other agent kinds use the neutral theme. Muxboard does not scrape
 terminal output or resume native agent conversations.
 
+On startup, native `idle` is accepted as already seen, including when a newer
+server retains its last `completion_seq`. Native `done` still surfaces immediately.
+Herdr marks every pane in a viewed tab seen; Muxboard retains unread sibling
+completions it observed during this run. Older servers expose no completion
+history for results marked seen before Muxboard started.
+
 Herdr provides transition sequence numbers rather than historical timestamps.
 Muxboard measures state age from transitions it observes while running; a pane
 already present at startup shows an unknown age until a transition is observed.
@@ -555,8 +561,9 @@ creates only uniquely named `muxboard-e2e-*` sessions, and removes those session
 in cleanup. It does not change the default session or existing user sessions.
 
 The Stream Deck suite runs the built plugin against a real SDK WebSocket peer
-with controlled CLI and HTTP fixtures: 38 scenarios and 76 assertions cover
-rendering, source routing, and existing-host focus. It simulates device hardware
+with controlled CLI and HTTP fixtures: 42 scenarios and 85 assertions cover
+rendering, source routing, existing-host focus, and completion acknowledgement
+across plugin restarts and tab-wide native seen changes. It simulates device hardware
 and services; it does not connect to live SSH machines or use physical keys.
 
 ## Troubleshooting

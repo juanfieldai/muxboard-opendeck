@@ -98,6 +98,55 @@ test("Herdr normalizes done, idle and unknown without inventing activity", async
   assert.equal(rows[1].needsInput, undefined);
 });
 
+test("Herdr modern startup omits seen idle completions but surfaces native done", async () => {
+  const h = harness({ sessions: ["default"] });
+  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 7 }), agent({ terminal_id: "term_2", pane_id: "w1:p2", agent_status: "done", completion_seq: 8 })]));
+  const rows = await h.client.listAttention();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].herdr?.terminalId, "term_2");
+  assert.equal(rows[0].reason, "finished");
+  assert.equal(rows[0].ageUnknown, true);
+  assert.equal((await h.client.listAttention()).length, 1);
+});
+
+test("Herdr restart after acknowledgment does not replay an already seen completion", async () => {
+  const h = harness({ sessions: ["default"] });
+  h.data.set("default", snap([agent({ agent_status: "done", completion_seq: 7 })]));
+  const [row] = await h.client.listAttention();
+  await h.client.focus(row);
+  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  const restarted = new HerdrClient({ runner: h.runner, includeMachines: false, sessions: ["default"] });
+  assert.deepEqual(await restarted.listAttention(), []);
+  assert.deepEqual(await restarted.listAttention(), []);
+});
+
+test("Herdr seen startup baseline still surfaces a later observed completion", async () => {
+  const h = harness({ sessions: ["default"] });
+  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  assert.deepEqual(await h.client.listAttention(), []);
+  h.data.set("default", snap([agent({ agent_status: "working", state_change_seq: 8 })]));
+  assert.equal((await h.client.listAttention())[0].activity, "working");
+  h.data.set("default", snap([agent({ agent_status: "idle", state_change_seq: 9, completion_seq: 9 })]));
+  const [finished] = await h.client.listAttention();
+  assert.equal(finished.reason, "finished");
+  assert.equal(finished.herdr?.terminalId, "term_1");
+});
+
+test("Herdr modern observed sibling completion survives tab-wide seen until its own acknowledgment", async () => {
+  const h = harness({ sessions: ["default"] });
+  const first = agent({ agent_status: "done", completion_seq: 7 });
+  const second = agent({ terminal_id: "term_2", pane_id: "w1:p2", agent_status: "done", completion_seq: 8 });
+  h.data.set("default", snap([first, second]));
+  const [row] = await h.client.listAttention();
+  await h.client.focus(row);
+  h.data.set("default", snap([{ ...first, agent_status: "idle" }, { ...second, agent_status: "idle" }]));
+  const [remaining] = await h.client.listAttention();
+  assert.equal(remaining.herdr?.terminalId, "term_2");
+  assert.equal(remaining.reason, "finished");
+  await h.client.focus(remaining);
+  assert.deepEqual(await h.client.listAttention(), []);
+});
+
 test("Herdr records local transition age but never treats state_change_seq as a timestamp", async () => {
   const h = harness({ sessions: ["default"] });
   await h.client.listAttention();
@@ -254,9 +303,9 @@ test("Herdr failed or mismatched legacy tab focus preserves completion and never
   }
 });
 
-test("Herdr completion_seq supports read idle completions, ack and later work", async () => {
+test("Herdr completion_seq retains unread completions, ack and later observed work", async () => {
   const h = harness({ sessions: ["default"] });
-  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  h.data.set("default", snap([agent({ agent_status: "done", completion_seq: 7 })]));
   const [row] = await h.client.listAttention();
   assert.equal(row.reason, "finished");
   await h.client.focus(row);
@@ -399,10 +448,10 @@ test("Herdr zero completion is idle and completion regression reboots observatio
   const h = harness({ sessions: ["default"] });
   h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 0 })]));
   assert.deepEqual(await h.client.listAttention(), []);
-  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  h.data.set("default", snap([agent({ agent_status: "done", completion_seq: 7 })]));
   const [row] = await h.client.listAttention();
   await h.client.focus(row);
-  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 1 })]));
+  h.data.set("default", snap([agent({ agent_status: "done", completion_seq: 1 })]));
   const [reset] = await h.client.listAttention();
   assert.equal(reset.reason, "finished");
   assert.equal(reset.ageUnknown, true);
@@ -410,7 +459,7 @@ test("Herdr zero completion is idle and completion regression reboots observatio
 
 test("Herdr an in-flight focus cannot acknowledge a newer completion from concurrent poll", async () => {
   const h = harness({ sessions: ["default"] });
-  h.data.set("default", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  h.data.set("default", snap([agent({ agent_status: "done", completion_seq: 7 })]));
   const [row] = await h.client.listAttention();
   h.setFocusHook(async () => {
     h.data.set("default", snap([agent({ agent_status: "idle", state_change_seq: 9, completion_seq: 9 })]));
@@ -423,7 +472,7 @@ test("Herdr an in-flight focus cannot acknowledge a newer completion from concur
 
 test("Herdr changed SSH targets discard host-specific cadence, route, age and ack", async () => {
   const h = harness({ remote: true, legacy: true });
-  h.data.set("m1", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  h.data.set("m1", snap([agent({ agent_status: "done", completion_seq: 7 })]));
   const remote = (await h.client.listAttention()).find(r => r.herdr?.machineId)!;
   await h.client.focus(remote);
   assert.equal((await h.client.listAttention()).filter(r => r.herdr?.machineId).length, 0);
@@ -526,7 +575,7 @@ test("Herdr resolveFocusTarget refuses stopped sessions and invalid saved SSH ta
 
 test("Herdr expected focus route rejects profile edits before any focus or acknowledgment", async () => {
   const h = harness({ remote: true, legacy: true });
-  h.data.set("m1", snap([agent({ agent_status: "idle", completion_seq: 7 })]));
+  h.data.set("m1", snap([agent({ agent_status: "done", completion_seq: 7 })]));
   const item = (await h.client.listAttention()).find(r => r.herdr?.machineId)!;
   const target = await h.client.resolveFocusTarget(item);
   h.machines[0].target = "other@replacement-host.example";

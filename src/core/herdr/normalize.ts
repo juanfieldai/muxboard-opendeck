@@ -74,11 +74,16 @@ export function normalizeHerdrAgent(
   const semantic = (s: string) => s === "done" ? "idle" : s;
   const changed = sameOccupant && (previous.sequence !== seq || semantic(previous.status) !== semantic(raw.agent_status) ||
     (currentCompletion !== undefined && currentCompletion !== previous.completionSequence));
+  const seenBaseline = !sameOccupant && raw.agent_status === "idle" && currentCompletion !== undefined
+    ? `completion:${currentCompletion}` : undefined;
   const observation: HerdrObservation = {
     signature, sequence: seq, completionSequence: currentCompletion, status: raw.agent_status, observedAt: sameOccupant ? previous.observedAt : now,
     since: sameOccupant ? changed ? now : previous.since : undefined,
     pendingCompletion: sameOccupant && !changed ? previous.pendingCompletion : undefined,
-    acknowledgedCompletion: sameOccupant ? previous.acknowledgedCompletion : undefined,
+    // completion_seq records that work completed, independently of viewing.
+    // A first idle snapshot is already seen in Herdr; use it as our baseline
+    // rather than replaying a historical completion after startup/restart.
+    acknowledgedCompletion: sameOccupant ? previous.acknowledgedCompletion : seenBaseline,
   };
   const completion = currentCompletion !== undefined ? `completion:${currentCompletion}` :
     raw.agent_status === "done" ? `state:${seq ?? "unknown"}` : undefined;

@@ -39,7 +39,7 @@ type Agent = { terminal_id: string; pane_id: string; workspace_id: string; tab_i
   agent_status: string; agent: string; title: string; state_change_seq: number; completion_seq?: number };
 type Machine = { label: string; session: string; enabled: boolean; agents: Agent[] };
 type State = { sessions: Record<string, Agent[]>; machines: Record<string, Machine>;
-  modes: Record<string, string>; focusError: boolean; hostKind?: "zellij" | "direct" | "tmux" | "cmux"; hostMissing?: boolean; hostActivationError?: boolean; hostReadbackError?: boolean; hostMembershipError?: boolean; hostClientReplaced?: boolean; tabFocusError?: boolean; hostPidOffset?: number; hostFocused?: Record<string, string> };
+  modes: Record<string, string>; focusError: boolean; serverVersion?: string; tabWideSeen?: boolean; hostKind?: "zellij" | "direct" | "tmux" | "cmux"; hostMissing?: boolean; hostActivationError?: boolean; hostReadbackError?: boolean; hostMembershipError?: boolean; hostClientReplaced?: boolean; tabFocusError?: boolean; hostPidOffset?: number; hostFocused?: Record<string, string> };
 const agent = (index: number, status = "blocked", title = `agent${String(index).padStart(2, "0")}`): Agent => ({
   terminal_id: `terminal${String(index).padStart(2, "0")}`, pane_id: `pane${String(index).padStart(2, "0")}`,
   workspace_id: "same-workspace", tab_id: "same-tab", agent_status: status,
@@ -134,10 +134,13 @@ if (args[0] === 'session' && args[1] === 'list') {
     const mode = state.modes[session];
     if (mode === 'malformed') process.stdout.write('{bad-json');
     else if (mode === 'error') emit({error:{code:'fixture_failure',message:'simulated outage'}});
-    else emit({result:{type:'session_snapshot',snapshot:{version:'0.9.0',protocol:1,agents,workspaces:[{workspace_id:'same-workspace',label:'fixture-workspace'}]}}});
+    else emit({result:{type:'session_snapshot',snapshot:{version:state.serverVersion||'0.9.0',protocol:1,agents,workspaces:[{workspace_id:'same-workspace',label:'fixture-workspace'}]}}});
   } else if (args.includes('tab') && args.includes('focus')) {
     if (state.tabFocusError) emit({error:{code:'fixture_tab_failure',message:'legacy projection unavailable'}});
-    else emit({result:{type:'tab_info',tab:{tab_id:args[args.length-1],workspace_id:'same-workspace',label:'fixture-tab'}}});
+    else {
+      emit({result:{type:'tab_info',tab:{tab_id:args[args.length-1],workspace_id:'same-workspace',label:'fixture-tab'}}});
+      if(state.tabWideSeen){for(const a of agents)if(a.tab_id===args[args.length-1]&&a.agent_status==='done')a.agent_status='idle';fs.writeFileSync(file,JSON.stringify(state));}
+    }
   } else if (args.includes('focus')) {
     if (state.focusError) emit({error:{code:'fixture_focus_failure',message:'pane moved'}});
     else {
@@ -255,6 +258,14 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
         MUXBOARD_E2E_STATE: statePath, MUXBOARD_E2E_CALLS: callsPath }, stdio: ["ignore", "pipe", "pipe"] });
     child.stdout?.on("data", data => { output += data; });
     child.stderr?.on("data", data => { output += data; });
+  };
+  const restartPlugin = async () => {
+    const registrations = messages.filter(m => m.event === "registerPlugin").length;
+    if (child?.exitCode === null) { const stopped = once(child, "exit"); child.kill("SIGTERM"); await stopped; }
+    keySvg.clear(); dialSvg.clear(); launchPlugin();
+    await until("restarted plugin registration", () => messages.filter(m => m.event === "registerPlugin").length > registrations);
+    for (let i = 0; i < 8; i++) send("willAppear", `key${i}`);
+    for (let i = 0; i < 4; i++) send("willAppear", `dial${i}`);
   };
   launchPlugin();
 
@@ -572,6 +583,42 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
     state.hostReadbackError = false; await save(); await tap("key0");
     await until("cmux completion acknowledged", () => !image("key0").includes("cmuxFail"));
     expect((await calls()).some(c => c.kind === "herdr" && c.args.join(" ") === "--session alpha agent focus pane95"), "cmux recovery acknowledges selected agent after visibility proof");
+  });
+  await scenario("fresh plugin omits native idle agents with previously completed counters", async () => {
+    state = { sessions: { alpha: [{ ...agent(100, "idle", "SeenIdle"), completion_seq: 7 },
+      agent(101, "working", "LiveWork")] }, machines: {}, modes: {}, focusError: false, serverVersion: "0.9.3" }; await save();
+    await restartPlugin();
+    await until("modern bootstrap working tile", () => keySvg.size === 8 && dialSvg.size === 4 && image("key0").includes("LiveWork"));
+    expect(![...keySvg.values()].some(svg => svg.includes("SeenIdle")), "positive completion counter alone is not unread at native-idle bootstrap");
+    expect(image("key0").includes("working"), "working agent remains visible beside omitted seen idle agent");
+  });
+  await scenario("fresh native done with a positive counter renders unread completion", async () => {
+    state = { sessions: { alpha: [{ ...agent(102, "done", "Unread"), completion_seq: 8 },
+      agent(101, "working", "LiveWork")] }, machines: {}, modes: {}, focusError: false, serverVersion: "0.9.3" }; await save();
+    await tap("dial3"); await until("fresh native done", () => image("key0").includes("Unread") && image("key0").includes("DONE"));
+    expect(image("key1").includes("LiveWork"), "unread completion ranks before working sibling");
+    expect(/>\?</.test(image("key0")), "historical completion age remains unknown at first observation");
+  });
+  await scenario("plugin restart does not resurrect a completion already acknowledged natively", async () => {
+    await tap("key0"); await until("modern completion acknowledged", () => image("key0").includes("LiveWork") && ![...keySvg.values()].some(svg => svg.includes("Unread")));
+    const native = JSON.parse(await readFile(statePath, "utf8")) as State;
+    expect(native.sessions.alpha[0].agent_status === "idle" && native.sessions.alpha[0].completion_seq === 8, "native seen state retains its completion counter");
+    await restartPlugin();
+    await until("restarted modern working tile", () => keySvg.size === 8 && image("key0").includes("LiveWork"));
+    expect(![...keySvg.values()].some(svg => svg.includes("Unread")), "fresh client baselines previously seen completion instead of replaying it");
+  });
+  await scenario("old 0.9.0 tab-wide native seen state preserves the unacknowledged sibling tile", async () => {
+    state = { sessions: { alpha: [agent(104, "done", "Old A"), agent(105, "done", "Old B")] },
+      machines: {}, modes: {}, focusError: false, serverVersion: "0.9.0", tabWideSeen: true }; await save();
+    await tap("dial3"); await until("old unread sibling completions", () => ["Old A", "Old B"].every(title => [...keySvg.values()].some(svg => svg.includes(title) && svg.includes("DONE"))));
+    const context = [...keySvg].find(([, svg]) => svg.includes("Old A"))![0];
+    await tap(context);
+    await until("selected old completion acknowledged", () => image("key0").includes("Old B") && image("key0").includes("DONE") && ![...keySvg.values()].some(svg => svg.includes("Old A")));
+    await pause(650);
+    const native = JSON.parse(await readFile(statePath, "utf8")) as State;
+    expect(native.sessions.alpha.every(a => a.agent_status === "idle" && a.completion_seq === undefined), "real old schema has no completion counter and tab focus marks both agents seen");
+    expect(image("key0").includes("Old B") && image("key0").includes("DONE"), "locally observed sibling completion remains unread despite tab-wide native idle");
+    expect((await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).at(-1)?.args.join(" ") === "--session alpha agent focus pane104", "only selected stable terminal acknowledged");
   });
   if (protocolError) throw protocolError;
   console.log(`\n${scenarios} protocol/process E2E scenarios passed; ${assertions} explicit assertions; ${messages.filter(m => m.event === "setImage" || m.event === "setFeedback").length} SDK SVG messages decoded.`);
