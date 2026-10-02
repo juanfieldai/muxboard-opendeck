@@ -8,6 +8,9 @@ import type { CodexbarService } from "./core/services/codexbarService.js";
 import type { AttentionItem, AttentionSource } from "./core/types.js";
 import type { OrcaClient } from "./core/orca/client.js";
 import type { OrcaService } from "./core/services/orcaService.js";
+import type { HerdrClient } from "./core/herdr/client.js";
+import type { HerdrService } from "./core/services/herdrService.js";
+import { HerdrReveal } from "./core/herdr/reveal.js";
 
 /**
  * Shared runtime handed to the Stream Deck actions: the store they render from,
@@ -20,6 +23,7 @@ export interface Runtime {
   codexbarService: CodexbarService;
   /** Orca poller; force-refresh triggers it when Orca is active. */
   orcaService: OrcaService;
+  herdrService: HerdrService;
   logger: Logger;
   /** Per-source focus backends, resolved by item.source. */
   backends: Record<AttentionSource, AttentionBackend>;
@@ -61,6 +65,26 @@ export function makeOrcaBackend(orca: OrcaClient, logger: Logger): AttentionBack
     async focus(item) {
       bringAppToFront("Orca", logger);
       await orca.focus(item);
+    },
+  };
+}
+
+/** Reveal the existing client before focus acknowledges the selected work. */
+export function makeHerdrBackend(
+  herdr: HerdrClient,
+  logger: Logger,
+  reveal: Pick<HerdrReveal, "show"> = new HerdrReveal(),
+): AttentionBackend {
+  return {
+    async focus(item) {
+      const target = await herdr.resolveFocusTarget(item);
+      try {
+        await reveal.show(target);
+      } catch (err) {
+        logger.warn(`reveal existing Herdr client failed: ${message(err)}`);
+        throw err;
+      }
+      await herdr.focus(item, target);
     },
   };
 }

@@ -138,6 +138,7 @@ export class DialStripAction extends SingletonAction {
         // (auto-detected), so a cmux-only user doesn't trigger a failing CLI call.
         const polls = [this.runtime.cmuxService.poll(), this.runtime.codexbarService.poll()];
         if (this.runtime.store.getState().orcaActive) polls.push(this.runtime.orcaService.poll());
+        if (this.runtime.store.getState().herdrActive) polls.push(this.runtime.herdrService.refresh());
         await Promise.allSettled(polls);
         break;
       }

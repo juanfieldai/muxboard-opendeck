@@ -98,7 +98,7 @@ export class AttentionKeyAction extends SingletonAction {
    * so nothing can be permanently lost by a press.
    */
   private async snooze(item: AttentionItem, action: KeyAction): Promise<void> {
-    this.runtime.store.snooze(item.workspaceId, AttentionKeyAction.SNOOZE_MS);
+    this.runtime.store.snoozeItem(item, AttentionKeyAction.SNOOZE_MS);
     await action.showOk();
   }
 
@@ -141,9 +141,13 @@ export class AttentionKeyAction extends SingletonAction {
     const state = this.runtime.store.getState();
 
     let svg: string;
-    // Tile only when every ACTIVE source is offline (an inactive Orca, which
-    // never started, doesn't keep the board blank when cmux is down).
-    const allDown = state.cmuxOffline && (!state.orcaActive || state.orcaOffline);
+    // Optional sources join the offline check only once their pollers start.
+    const sources = [
+      { name: "cmux", active: true, offline: state.cmuxOffline },
+      { name: "orca", active: state.orcaActive, offline: state.orcaOffline },
+      { name: "herdr", active: state.herdrActive, offline: state.herdrOffline },
+    ].filter((source) => source.active);
+    const allDown = sources.every((source) => source.offline);
     const decisions = state.view === "decisions";
     // The index shows the item's ABSOLUTE position in the queue, not the
     // physical key — so scrolling (col-0 dial) reveals 9, 10, 11… and you can
@@ -151,8 +155,7 @@ export class AttentionKeyAction extends SingletonAction {
     // scroll (offset 0 → no number), so the resting board stays uncluttered.
     const queuePos = state.offset > 0 ? state.offset + slot + 1 : undefined;
     if (allDown && slot === 0 && state.items.length === 0) {
-      // allDown implies cmux is down; orca joins the label only when it's active.
-      svg = renderSourceOffline(state.orcaActive && state.orcaOffline ? "cmux + orca" : "cmux");
+      svg = renderSourceOffline(sources.map((source) => source.name).join(" + "));
     } else if (decisions && state.items.length === 0 && !allDown) {
       // Decisions view, nothing pending: a calm "all clear" tile, not blank dots.
       svg = slot === 0 ? renderAllClear("no decisions") : renderEmptyKey(slot + 1);

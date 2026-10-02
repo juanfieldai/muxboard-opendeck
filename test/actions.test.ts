@@ -1,4 +1,6 @@
-import { test } from "node:test";
+import { test, after } from "node:test";
+import { mkdtempSync, copyFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,13 +12,15 @@ import type { AttentionItem } from "../src/core/types.js";
  * Stream Deck connection.
  *
  * The @elgato/streamdeck SDK reads manifest.json from process.cwd() at import
- * time (its module-level SDKVersion check), and the plugin's manifest lives in
- * the .sdPlugin dir — so chdir there BEFORE importing the action modules.
- * `node --test` isolates each file in its own process, so the chdir can't
- * affect the rest of the suite.
+ * time (its module-level SDKVersion check). Copy the manifest into a temporary
+ * directory before importing: concurrent SDK imports otherwise race with each
+ * other and the live plugin while rotating logs in the installed bundle.
  */
 const here = dirname(fileURLToPath(import.meta.url));
-process.chdir(join(here, "..", "com.mrshu.muxboard.sdPlugin"));
+const sdkDirectory = mkdtempSync(join(tmpdir(), "muxboard-sdk-test-"));
+copyFileSync(join(here, "..", "com.mrshu.muxboard.sdPlugin", "manifest.json"), join(sdkDirectory, "manifest.json"));
+process.chdir(sdkDirectory);
+after(() => rmSync(sdkDirectory, { recursive: true, force: true }));
 
 const { AttentionKeyAction } = await import("../src/actions/attentionKey.js");
 const { DialStripAction } = await import("../src/actions/dialStrip.js");

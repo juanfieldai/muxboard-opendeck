@@ -47,6 +47,16 @@ export interface MuxboardConfig {
    * Orca runtime is reachable; true forces it on; false disables it.
    */
   enableOrca: "auto" | boolean;
+  /** Herdr CLI and local snapshot polling cadence. */
+  herdrBin: string;
+  herdrPollMs: number;
+  enableHerdr: "auto" | boolean;
+  /** Empty lists discover every running local session / enabled saved machine. */
+  herdrSessions: string[];
+  herdrMachines: string[];
+  herdrIncludeMachines: boolean;
+  /** Remote reads use a slower cadence to avoid opening SSH bridges constantly. */
+  herdrMachinePollMs: number;
 }
 
 export const DEFAULT_CONFIG: MuxboardConfig = {
@@ -64,6 +74,13 @@ export const DEFAULT_CONFIG: MuxboardConfig = {
   orcaBin: "orca",
   orcaPollMs: 1500,
   enableOrca: "auto",
+  herdrBin: "herdr",
+  herdrPollMs: 1500,
+  enableHerdr: "auto",
+  herdrSessions: [],
+  herdrMachines: [],
+  herdrIncludeMachines: true,
+  herdrMachinePollMs: 15000,
 };
 
 const ALL_AGENTS: AgentKind[] = ["claude", "codex", "omp", "pi", "unknown"];
@@ -86,6 +103,13 @@ export function resolveConfig(partial: Partial<MuxboardConfig> | undefined | nul
     orcaBin: nonEmpty(p.orcaBin) ?? DEFAULT_CONFIG.orcaBin,
     orcaPollMs: clampInt(p.orcaPollMs, 500, 10_000, DEFAULT_CONFIG.orcaPollMs),
     enableOrca: coerceEnableOrca(p.enableOrca),
+    herdrBin: nonEmpty(p.herdrBin) ?? DEFAULT_CONFIG.herdrBin,
+    herdrPollMs: clampInt(p.herdrPollMs, 500, 10_000, DEFAULT_CONFIG.herdrPollMs),
+    enableHerdr: coerceEnableOrca(p.enableHerdr),
+    herdrSessions: cleanStrings(p.herdrSessions) ?? [],
+    herdrMachines: cleanStrings(p.herdrMachines) ?? [],
+    herdrIncludeMachines: typeof p.herdrIncludeMachines === "boolean" ? p.herdrIncludeMachines : true,
+    herdrMachinePollMs: clampInt(p.herdrMachinePollMs, 5000, 600_000, DEFAULT_CONFIG.herdrMachinePollMs),
   };
 }
 

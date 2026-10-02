@@ -14,6 +14,13 @@ interface SourceIcon {
 }
 
 const SOURCE_ICONS: Record<AttentionSource, SourceIcon> = {
+  herdr: {
+    tint: "#b38aef",
+    // An H monogram remains legible beside the status line on a physical key.
+    viewBox: "0 0 100 100",
+    body:
+      '<path fill="none" stroke="currentColor" stroke-width="12" stroke-linecap="round" d="M25 22 V78 M75 22 V78 M25 50 H75"/>',
+  },
   orca: {
     tint: "#4f9eef",
     viewBox: "0 0 318.60232 202.66667",

@@ -1,4 +1,5 @@
 import type { AgentFilter, AttentionItem } from "../types.js";
+import { attentionEntityKey } from "../types.js";
 
 /** Number of physical keys on a Stream Deck+. */
 export const KEY_COUNT = 8;
@@ -63,18 +64,19 @@ export function isDecision(item: AttentionItem): boolean {
 }
 
 /**
- * Collapse to one item per workspace, keeping the newest.
+ * Collapse to one item per attention entity, keeping the newest.
  *
  * cmux accumulates a notification per agent turn, so a single workspace can have
  * many (e.g. a "done" then a "waiting"). Given a newest-first list, this keeps
  * only the first (latest) per workspace — so each repo occupies one key showing
- * its current state, instead of several stale duplicates.
+ * its current state, instead of several stale duplicates. Herdr supplies a
+ * terminal entity key so concurrent agents in one workspace retain their keys.
  */
 export function dedupeNewestPerWorkspace(sortedNewestFirst: AttentionItem[]): AttentionItem[] {
   const seen = new Set<string>();
   const out: AttentionItem[] = [];
   for (const it of sortedNewestFirst) {
-    const key = `${it.source}:${it.workspaceId}`;
+    const key = attentionEntityKey(it);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(it);

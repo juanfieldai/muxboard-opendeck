@@ -64,7 +64,11 @@ if command -v cmux >/dev/null 2>&1; then
     warn "cmux is in cmuxOnly mode. Set Settings → Automation → Socket Control Mode → Automation, then fully quit and relaunch cmux."
   fi
 else
-  warn "cmux not found on PATH. Install cmux and enable automation mode."
+  say "cmux not found; Orca and Herdr can supply the attention queue instead."
+fi
+
+if command -v herdr >/dev/null 2>&1; then
+  say "Herdr found. Running local sessions and enabled saved SSH machines are auto-detected."
 fi
 
 # CodexBar LCD: keep `codexbar serve` alive. It can crash (e.g. on Codex

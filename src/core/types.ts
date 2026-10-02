@@ -21,7 +21,7 @@ export function toAgentKind(id: string): AgentKind {
 }
 
 /** Which backend an attention item originates from. */
-export type AttentionSource = "cmux" | "orca";
+export type AttentionSource = "cmux" | "orca" | "herdr";
 
 /** Live workspace state from cmux's agent event stream (set_status mirror). */
 export type WorkspaceState = "running" | "needs" | "idle";
@@ -41,17 +41,21 @@ export type AttentionReason =
   | "waiting"
   | "unknown";
 
-/** A single pane/worktree that needs the user's attention (cmux or Orca). */
+/** A single pane/worktree/terminal that needs the user's attention. */
 export interface AttentionItem {
   /**
    * Unique item id and focus key. For cmux: the notification uuid. For Orca:
    * the worktree id (a composite `repoId::path`, not a uuid).
    */
   id: string;
-  /** The backend this item came from (cmux notification vs Orca worktree). */
+  /** The backend this item came from. */
   source: AttentionSource;
   agent: AgentKind;
   workspaceId: string;
+  /** Fully qualified stable surface identity when a workspace has many agents. */
+  entityKey?: string;
+  /** Native Herdr target, separate from its stable machine/server/terminal identity. */
+  herdr?: { session: string; terminalId: string; paneId: string; machineId?: string };
   /** Short repo/workspace name, derived from cmux tab_title. */
   repo?: string;
   /** Human-facing label for the key. */
@@ -84,6 +88,8 @@ export interface AttentionItem {
    * ("working for 2m") instead of the (possibly stale) notification time.
    */
   activitySince?: number;
+  /** Historical state age is unavailable (for example on the initial poll). */
+  ageUnknown?: boolean;
   /** The workspace's cmux color (hex), used for the key border. */
   color?: string;
   /** ISO-8601 creation timestamp (sort key). */
@@ -94,6 +100,11 @@ export interface AttentionItem {
    * directly rather than opening a notification.
    */
   synthetic?: boolean;
+}
+
+/** Shared identity for grouping and snoozing, isolated across attention sources. */
+export function attentionEntityKey(item: AttentionItem): string {
+  return item.entityKey ?? `${item.source}:${item.workspaceId}`;
 }
 
 /** A usage window (session or weekly) for a CodexBar provider. */
@@ -192,6 +203,10 @@ export interface AppState {
   orcaOffline: boolean;
   /** True once the Orca poller has been started (auto-detected reachable). */
   orcaActive: boolean;
+  /** True when the Herdr feed is currently unavailable. */
+  herdrOffline: boolean;
+  /** True once the Herdr poller has been started. */
+  herdrActive: boolean;
   /** CodexBar usage per provider, keyed by provider id. */
   usage: Record<string, ProviderUsage>;
   /** Live per-workspace status from the cmux event stream, keyed by id. */

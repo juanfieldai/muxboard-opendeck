@@ -6,6 +6,7 @@ import type {
   ProviderUsage,
   WorkspaceStatus,
 } from "../types.js";
+import { attentionEntityKey } from "../types.js";
 import {
   applyFilter,
   clampOffset,
@@ -26,6 +27,12 @@ const LCD_SEGMENTS = 4;
 
 /** A "working" pane with no events for this long (and not CPU-busy) reads as stalled. */
 const STALLED_MS = 180_000;
+
+const OFFLINE_FIELDS = {
+  cmux: "cmuxOffline",
+  orca: "orcaOffline",
+  herdr: "herdrOffline",
+} as const satisfies Record<AttentionSource, keyof AppState>;
 
 /** Wrap `n` into `[0, len)`; returns 0 when there is nothing to wrap into. */
 function wrap(n: number, len: number): number {
@@ -53,10 +60,10 @@ export class Store {
   private state: AppState;
   private readonly listeners = new Set<Listener>();
   /** Raw attention items per source, merged and sorted on each recompute. */
-  private itemsBySource: Record<AttentionSource, AttentionItem[]> = { cmux: [], orca: [] };
+  private itemsBySource: Record<AttentionSource, AttentionItem[]> = { cmux: [], orca: [], herdr: [] };
   /** Epoch ms per workspace of the user's latest cmux "clear notifications". */
   private clearedNotifications: Record<string, number> = {};
-  /** workspaceId → epoch ms until which the user has snoozed it (long-press). */
+  /** Attention entity key → epoch ms until which it is snoozed (long-press). */
   private readonly snoozed = new Map<string, number>();
   private readonly now: () => number;
 
@@ -71,6 +78,8 @@ export class Store {
       cmuxOffline: false,
       orcaOffline: false,
       orcaActive: false,
+      herdrOffline: false,
+      herdrActive: false,
       usage: {},
       workspaceStatus: {},
       // Seeded empty; filled from CodexBar discovery on the first poll.
@@ -98,8 +107,7 @@ export class Store {
     // Drop any cmux key the user explicitly cleared in cmux (live event-stream
     // signal), so it vanishes immediately rather than lingering until the next
     // poll drops it from the notification list.
-    const cmux = this.itemsBySource.cmux.filter((it) => !this.isCleared(it));
-    const merged = [...cmux, ...this.itemsBySource.orca];
+    const merged = Object.values(this.itemsBySource).flat().filter((it) => !this.isCleared(it));
     const allItems = sortNewestFirst(merged);
     // Filter by agent, collapse to the newest item per workspace (one key per
     // repo), enrich with live event status, then pin exceptions
@@ -191,16 +199,26 @@ export class Store {
    * into the queue on the next recompute (poll/event), "not now but don't forget".
    */
   private isSnoozed(item: AttentionItem): boolean {
-    const until = this.snoozed.get(item.workspaceId);
+    const key = attentionEntityKey(item);
+    const until = this.snoozed.get(key);
     if (until == null) return false;
     if (this.now() < until) return true;
-    this.snoozed.delete(item.workspaceId);
+    this.snoozed.delete(key);
     return false;
   }
 
-  /** Snooze a workspace's keys for `ms`; it returns automatically when elapsed. */
+  /** Compatibility API: snooze a cmux workspace for a bounded window. */
   snooze(workspaceId: string, ms: number): void {
-    this.snoozed.set(workspaceId, this.now() + ms);
+    this.snoozeEntity(`cmux:${workspaceId}`, ms);
+  }
+
+  /** Snooze exactly this source's surface, preserving neighboring agents. */
+  snoozeItem(item: AttentionItem, ms: number): void {
+    this.snoozeEntity(attentionEntityKey(item), ms);
+  }
+
+  private snoozeEntity(key: string, ms: number): void {
+    this.snoozed.set(key, this.now() + ms);
     this.recompute();
     this.emit();
   }
@@ -220,7 +238,7 @@ export class Store {
   /** Replace one source's attention items (from its poll). */
   setAttention(items: AttentionItem[], offline: boolean, source: AttentionSource = "cmux"): void {
     this.itemsBySource[source] = items;
-    const offlineField = source === "cmux" ? "cmuxOffline" : "orcaOffline";
+    const offlineField = OFFLINE_FIELDS[source];
     this.state = { ...this.state, [offlineField]: offline };
     this.recompute();
     this.emit();
@@ -228,7 +246,7 @@ export class Store {
 
   /** Mark a single source offline/online without replacing its items. */
   setSourceOffline(source: AttentionSource, offline: boolean): void {
-    const field = source === "cmux" ? "cmuxOffline" : "orcaOffline";
+    const field = OFFLINE_FIELDS[source];
     if (this.state[field] === offline) return;
     this.state = { ...this.state, [field]: offline };
     this.emit();
@@ -238,6 +256,13 @@ export class Store {
   setOrcaActive(active: boolean): void {
     if (this.state.orcaActive === active) return;
     this.state = { ...this.state, orcaActive: active };
+    this.emit();
+  }
+
+  /** Mark the Herdr poller active after detection or explicit enablement. */
+  setHerdrActive(active: boolean): void {
+    if (this.state.herdrActive === active) return;
+    this.state = { ...this.state, herdrActive: active };
     this.emit();
   }
 

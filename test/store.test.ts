@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Store } from "../src/core/services/store.js";
 import { normalizeNotifications } from "../src/core/cmux/normalize.js";
 import type { AttentionItem } from "../src/core/types.js";
+import { attentionEntityKey } from "../src/core/types.js";
 import { loadFixture } from "./helpers.js";
 
 function freshStore(): Store {
@@ -15,6 +16,112 @@ const mkItem = (over: Partial<AttentionItem> & { id: string }): AttentionItem =>
   source: "cmux", agent: "claude", workspaceId: over.id, title: over.id,
   reason: "waiting", activity: "waiting", body: "", message: "",
   createdAt: "2026-06-20T12:00:00Z", ...over,
+});
+
+const herdrItem = (session: string, terminal: string, over: Partial<AttentionItem> = {}): AttentionItem =>
+  mkItem({
+    id: `${session}:${terminal}`, source: "herdr", workspaceId: "shared-workspace",
+    entityKey: `herdr:${session}:${terminal}`,
+    herdr: { session, terminalId: terminal, paneId: `pane-${terminal}` }, ...over,
+  });
+
+test("three attention slices merge and an empty Herdr refresh clears only Herdr", () => {
+  const store = new Store();
+  store.setAttention([mkItem({ id: "cmux" })], false, "cmux");
+  store.setAttention([mkItem({ id: "orca", source: "orca" })], false, "orca");
+  store.setAttention([herdrItem("default", "one")], false, "herdr");
+  assert.deepEqual(store.getState().items.map((item) => item.source).sort(), ["cmux", "herdr", "orca"]);
+  store.setAttention([], false, "herdr");
+  assert.deepEqual(store.getState().items.map((item) => item.source).sort(), ["cmux", "orca"]);
+});
+
+test("Herdr terminal identities preserve many agents per workspace and across sessions", () => {
+  const store = new Store();
+  store.setAttention([
+    herdrItem("default", "one"), herdrItem("default", "two"), herdrItem("other", "one"),
+    herdrItem("default", "one", { id: "newer", createdAt: "2026-06-20T12:01:00Z" }),
+  ], false, "herdr");
+  const items = store.getState().items;
+  assert.equal(items.length, 3);
+  assert.ok(items.some((item) => item.id === "newer"));
+  assert.ok(!items.some((item) => item.id === "default:one"));
+  assert.deepEqual(new Set(items.map(attentionEntityKey)), new Set([
+    "herdr:default:one", "herdr:default:two", "herdr:other:one",
+  ]));
+});
+
+test("identical Herdr server and terminal IDs on different saved machines remain independent", () => {
+  const store = new Store();
+  const onMachine = (machineId: string): AttentionItem => herdrItem("default", "one", {
+    entityKey: `herdr:${machineId}:default:one`,
+    herdr: { machineId, session: "default", terminalId: "one", paneId: "same-native-pane" },
+  });
+  const first = onMachine("machine-a");
+  const second = onMachine("machine-b");
+  store.setAttention([first, second], false, "herdr");
+  assert.equal(store.getState().items.length, 2);
+  store.snoozeItem(first, 5000);
+  assert.deepEqual(store.getState().items, [second]);
+});
+
+test("snoozing a Herdr terminal survives a move and spares other agents and sources", () => {
+  let now = 1_000_000;
+  const store = new Store([], () => now);
+  const original = herdrItem("default", "one");
+  const peers = [herdrItem("default", "two"), herdrItem("other", "one")];
+  store.setAttention([original, ...peers], false, "herdr");
+  store.setAttention([mkItem({ id: "cmux", workspaceId: "shared-workspace" })], false, "cmux");
+  store.setAttention([mkItem({ id: "orca", source: "orca", workspaceId: "shared-workspace" })], false, "orca");
+  store.snoozeItem(original, 5000);
+  assert.equal(store.getState().items.length, 4);
+  const moved = herdrItem("default", "one", {
+    workspaceId: "new-workspace", herdr: { session: "default", terminalId: "one", paneId: "moved-pane" },
+  });
+  store.setAttention([moved, ...peers], false, "herdr");
+  assert.equal(store.getState().items.length, 4);
+  assert.ok(!store.getState().items.some((item) => item.entityKey === original.entityKey));
+  now += 5001;
+  store.setAttention([moved, ...peers], false, "herdr");
+  assert.equal(store.getState().items.length, 5);
+  assert.equal(store.getState().items.find((item) => item.entityKey === original.entityKey)?.herdr?.paneId, "moved-pane");
+});
+
+test("legacy cmux snooze no longer hides matching Orca or Herdr workspaces", () => {
+  const store = new Store();
+  for (const source of ["cmux", "orca", "herdr"] as const) {
+    store.setAttention([mkItem({ id: source, source, workspaceId: "same" })], false, source);
+  }
+  store.snooze("same", 5000);
+  assert.deepEqual(store.getState().items.map((item) => item.source).sort(), ["herdr", "orca"]);
+});
+
+test("Herdr health is independent, retains last-good items and resets on success", () => {
+  const store = new Store();
+  assert.equal(store.getState().herdrActive, false);
+  let emits = 0;
+  store.subscribe(() => emits++);
+  store.setHerdrActive(true);
+  store.setHerdrActive(true);
+  assert.equal(emits, 1);
+  store.setAttention([herdrItem("default", "one")], false, "herdr");
+  store.setSourceOffline("herdr", true);
+  assert.equal(store.getState().herdrOffline, true);
+  assert.equal(store.getState().cmuxOffline, false);
+  assert.equal(store.getState().orcaOffline, false);
+  assert.equal(store.getState().items.length, 1);
+  store.setAttention([herdrItem("default", "one")], false, "herdr");
+  assert.equal(store.getState().herdrOffline, false);
+  store.setHerdrActive(false);
+  assert.equal(store.getState().herdrActive, false);
+});
+
+test("cmux status and clear events cannot change or remove a Herdr agent", () => {
+  const store = new Store();
+  const item = herdrItem("default", "one");
+  store.setAttention([item], false, "herdr");
+  store.setWorkspaceStatus({ "shared-workspace": { state: "running", since: 0, lastSeen: 0 } });
+  store.setClearedNotifications({ "shared-workspace": Date.parse("2026-06-21T00:00:00Z") });
+  assert.deepEqual(store.getState().items, [item]);
 });
 
 test("a running pane gone silent past the threshold is marked stalled", () => {

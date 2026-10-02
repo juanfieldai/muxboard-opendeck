@@ -43,9 +43,10 @@ else
   echo "⚠ @elgato/cli not available; skipping link. Run 'npm i' first."
 fi
 
-echo "▸ Done. Keys read cmux directly; LCD reads CodexBar."
+echo "▸ Done. Keys read cmux, Orca, and Herdr sessions and saved SSH machines; LCD reads CodexBar."
 echo "  One-time setup:"
-echo "    • cmux Socket Control Mode = 'Automation' (see header)"
+echo "    • Herdr and Orca are auto-detected when running."
+echo "    • For cmux: Socket Control Mode = 'Automation' (see header)"
 echo "    • Install the device profile: quit the Stream Deck app, run"
 echo "      'npm run install-profile', reopen it, and pick the 'Muxboard' profile."
 echo "▸ Watching for changes (Ctrl-C to stop)…"

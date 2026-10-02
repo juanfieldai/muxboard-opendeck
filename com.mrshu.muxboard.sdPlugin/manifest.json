@@ -5,7 +5,7 @@
   "Author": "mrshu",
   "UUID": "com.mrshu.muxboard",
   "Icon": "imgs/plugin/icon",
-  "Description": "Surfaces cmux panes and Orca worktrees whose coding agents (Claude Code, Codex, Pi) need attention on the 8 keys, and CodexBar quota/limit telemetry on the LCD strip.",
+  "Description": "Surfaces cmux panes, Orca worktrees, and Herdr agent sessions needing attention on the 8 keys, with CodexBar quota telemetry on the LCD strip.",
   "Category": "Muxboard",
   "CategoryIcon": "imgs/plugin/category",
   "CodePath": "bin/plugin.cjs",
@@ -28,7 +28,7 @@
       "Name": "Attention Slot",
       "UUID": "com.mrshu.muxboard.attention",
       "Icon": "imgs/actions/attention/icon",
-      "Tooltip": "Shows the cmux pane needing attention for this key's slot. Press to focus it.",
+      "Tooltip": "Shows an agent needing attention. Press to focus its pane; hold to snooze locally.",
       "Controllers": [
         "Keypad"
       ],

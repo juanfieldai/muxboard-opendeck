@@ -7,11 +7,65 @@ import {
   reservePercent,
   elapsedPercent,
 } from "../src/core/render/lcdRender.js";
-import type { UsageWindow } from "../src/core/types.js";
+import type { AttentionItem, UsageWindow } from "../src/core/types.js";
 import { formatAge, formatCountdown, formatUsd } from "../src/core/render/format.js";
 import { normalizeUsageResponse } from "../src/core/codexbar/normalize.js";
 import { normalizeNotifications } from "../src/core/cmux/normalize.js";
 import { loadFixture, NOW_MS } from "./helpers.js";
+import { sourceGlyphSvg, sourceTint } from "../src/core/render/sourceIcons.js";
+import { estTextWidth } from "../src/core/render/format.js";
+
+test("Herdr bootstrap age stays unknown until a state transition is observed", () => {
+  const item: AttentionItem = {
+    id: "herdr-agent", source: "herdr", agent: "codex", workspaceId: "workspace",
+    title: "agent", reason: "waiting", activity: "working", ageUnknown: true,
+    createdAt: "2026-06-20T12:00:00Z", activitySince: NOW_MS - 600_000,
+  };
+  const unknown = renderKey(item, { nowMs: NOW_MS });
+  assert.match(unknown, /x="132" y="34" font-size="20"[^>]*fill="#7f8794">\?</);
+  const observed = renderKey({ ...item, ageUnknown: false }, { nowMs: NOW_MS });
+  assert.match(observed, /x="132" y="34"[^>]*>10m</);
+});
+
+test("same-title Herdr tiles identify their session and machine", () => {
+  const base: AttentionItem = {
+    id: "herdr-agent", source: "herdr", agent: "codex", workspaceId: "w1",
+    title: "Review", reason: "waiting", needsInput: true,
+    createdAt: new Date(NOW_MS).toISOString(),
+  };
+  const left = renderKey({ ...base, repo: "arbor/default · project" }, { nowMs: NOW_MS });
+  const right = renderKey({ ...base, repo: "spark/default · project" }, { nowMs: NOW_MS });
+  assert.notEqual(left, right);
+  assert.match(left, />arbor\/default</);
+  assert.match(right, />spark\/default</);
+  const statusSize = Number(left.match(/y="133" font-size="(\d+)"/)?.[1]);
+  assert.ok(estTextWidth("◆ NEEDS YOU", statusSize) + 11 * 0.5 <= 90);
+});
+
+test("Herdr completed turns and unknown states have distinct labels", () => {
+  const base: AttentionItem = { id: "h", workspaceId: "w", source: "herdr",
+    agent: "codex", title: "Task", reason: "finished", createdAt: new Date(NOW_MS).toISOString() };
+  assert.match(renderKey(base, { nowMs: NOW_MS }), />✓ DONE</);
+  assert.match(renderKey({ ...base, reason: "unknown" }, { nowMs: NOW_MS }), />unknown</);
+});
+
+test("Herdr source badge is visible and uses a distinct source tint", () => {
+  assert.notEqual(sourceTint("herdr"), sourceTint("cmux"));
+  assert.notEqual(sourceTint("herdr"), sourceTint("orca"));
+  const svg = sourceGlyphSvg("herdr", 108, 112, 26, sourceTint("herdr"));
+  assert.match(svg, /<g transform=/);
+  assert.match(svg, /stroke="#b38aef"/);
+  assert.doesNotMatch(svg, /currentColor/);
+});
+
+test("three-source offline label fits the physical key and escapes XML", () => {
+  const label = "cmux + orca + herdr";
+  const svg = renderSourceOffline(label);
+  const size = Number(svg.match(/y="98" font-size="(\d+)"/)?.[1]);
+  assert.ok(estTextWidth(label, size) <= 124);
+  assert.match(svg, /cmux \+ orca \+ herdr/);
+  assert.match(renderSourceOffline("herdr & cmux"), /herdr &amp; cmux/);
+});
 
 test("format helpers are compact and deterministic", () => {
   assert.equal(formatAge("2026-06-20T12:08:00Z", NOW_MS), "2m");

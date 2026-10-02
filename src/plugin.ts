@@ -8,9 +8,11 @@ import { CmuxEventsService } from "./core/services/cmuxEventsService.js";
 import { CodexbarService } from "./core/services/codexbarService.js";
 import { type Logger, message } from "./core/services/logger.js";
 import type { Runtime } from "./runtime.js";
-import { makeCmuxBackend, makeOrcaBackend } from "./runtime.js";
+import { makeCmuxBackend, makeOrcaBackend, makeHerdrBackend } from "./runtime.js";
 import { OrcaClient } from "./core/orca/client.js";
 import { OrcaService } from "./core/services/orcaService.js";
+import { HerdrClient } from "./core/herdr/client.js";
+import { HerdrService } from "./core/services/herdrService.js";
 import { AttentionKeyAction } from "./actions/attentionKey.js";
 import { DialStripAction } from "./actions/dialStrip.js";
 
@@ -57,9 +59,18 @@ function buildServices(config: MuxboardConfig, store: Store, logger: Logger) {
     timeoutMs: config.codexbarTimeoutMs,
   });
   const orca = new OrcaClient({ bin: config.orcaBin });
+  const herdr = new HerdrClient({
+    bin: config.herdrBin,
+    sessions: config.herdrSessions,
+    machines: config.herdrMachines,
+    includeMachines: config.herdrIncludeMachines,
+    machinePollMs: config.herdrMachinePollMs,
+  });
   return {
     cmux,
     orca,
+    herdr,
+    herdrService: new HerdrService({ client: herdr, store, pollMs: config.herdrPollMs, logger }),
     orcaService: new OrcaService({ client: orca, store, pollMs: config.orcaPollMs, logger }),
     cmuxService: new CmuxService({ client: cmux, store, pollMs: config.cmuxPollMs, logger }),
     cmuxEventsService: new CmuxEventsService({ bin: config.cmuxBin, store, logger }),
@@ -73,6 +84,7 @@ function buildServices(config: MuxboardConfig, store: Store, logger: Logger) {
     backends: {
       cmux: makeCmuxBackend(cmux, logger),
       orca: makeOrcaBackend(orca, logger),
+      herdr: makeHerdrBackend(herdr, logger),
     },
   };
 }
@@ -115,7 +127,7 @@ async function main(): Promise<void> {
     `Muxboard config: cmux="${config.cmuxBin}" codexbar="${config.codexbarBaseUrl}" providers=${config.codexbarProviders.join(",")}`,
   );
 
-  const { cmuxService, cmuxEventsService, codexbarService, orcaService, orca } = services;
+  const { cmuxService, cmuxEventsService, codexbarService, orcaService, orca, herdrService, herdr } = services;
   cmuxService.start();
   cmuxEventsService.start();
   codexbarService.start();
@@ -146,6 +158,24 @@ async function main(): Promise<void> {
     orcaProbe = setInterval(() => void tryStartOrca(), 30_000);
   }
 
+  let herdrStarted = false;
+  let herdrProbe: ReturnType<typeof setInterval> | null = null;
+  const tryStartHerdr = async (): Promise<void> => {
+    if (herdrStarted || config.enableHerdr === false) return;
+    if (config.enableHerdr === true || await herdr.reachable()) {
+      if (herdrStarted) return;
+      herdrStarted = true;
+      store.setHerdrActive(true);
+      herdrService.start();
+      if (herdrProbe) { clearInterval(herdrProbe); herdrProbe = null; }
+      logger.info("Herdr poller started.");
+    }
+  };
+  void tryStartHerdr();
+  if (config.enableHerdr === "auto") {
+    herdrProbe = setInterval(() => void tryStartHerdr(), 30_000);
+  }
+
   // Stop services on shutdown so the long-lived `cmux events` child is killed
   // rather than orphaned (Node doesn't reap child processes on exit).
   const shutdown = (): void => {
@@ -153,7 +183,9 @@ async function main(): Promise<void> {
     cmuxService.stop();
     codexbarService.stop();
     orcaService.stop();
+    herdrService.stop();
     if (orcaProbe) clearInterval(orcaProbe);
+    if (herdrProbe) clearInterval(herdrProbe);
   };
   process.once("SIGTERM", () => {
     shutdown();

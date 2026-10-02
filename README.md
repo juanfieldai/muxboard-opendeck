@@ -1,6 +1,7 @@
-# Muxboard: a Stream Deck+ dashboard for cmux AI coding agents
+# Muxboard: a Stream Deck+ dashboard for AI coding agents
 
-> Monitor your [cmux](https://cmux.com/) and [Orca](https://onorca.dev) AI coding
+> Monitor your [cmux](https://cmux.com/), [Orca](https://onorca.dev), and
+> [Herdr](https://herdr.dev) AI coding
 > agents (Claude Code, Codex, Pi, OMP) from an Elgato Stream Deck+: which agents
 > need attention show on the keys, and your CodexBar usage limits show on the LCD.
 
@@ -16,7 +17,8 @@ Muxboard turns the 8 keys of an Elgato Stream Deck+ into a queue of
 [OMP](https://github.com/can1357/oh-my-pi), or any other) have finished, failed,
 gotten blocked, or are waiting for your input. [Orca](https://onorca.dev)
 worktrees appear on the same keys when Orca is running (auto-detected; see
-[Orca support](#orca-support)). For cmux to see OMP sessions at all, install its
+[Orca support](#orca-support)). Herdr sessions and saved SSH machines also share the queue
+([Herdr support](#herdr-support)). For cmux to see OMP sessions at all, install its
 hook bridge once with `cmux hooks omp install` (cmux ≥ 0.64.17). The LCD touch
 strip shows CodexBar usage per provider: session and weekly quota with pace, plus
 spend and tokens — or, for credit-metered providers (CommandCode, Perplexity), a
@@ -30,8 +32,8 @@ top-to-bottom:
 5 6 7 8      key 8 = 8th newest
 ```
 
-Press a key to bring cmux to the foreground and jump straight to that
-workspace/surface. Empty slots render muted. When cmux or CodexBar is
+Press a key to bring its source to the foreground and jump straight to that
+workspace or pane. Empty slots render muted. When cmux or CodexBar is
 unreachable, the display degrades gracefully and the rest keeps working:
 
 ![Offline state](docs/images/dashboard-offline.png)
@@ -39,7 +41,8 @@ unreachable, the display degrades gracefully and the rest keeps working:
 ## Install
 
 macOS, with Node.js, the [Elgato Stream Deck app](https://www.elgato.com/stream-deck),
-and [cmux](https://cmux.com/) installed:
+and at least one attention source ([cmux](https://cmux.com/),
+[Orca](https://onorca.dev), or [Herdr](https://herdr.dev)) installed:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mrshu/muxboard/main/scripts/setup.sh | bash
@@ -55,7 +58,7 @@ profile. To build from source instead, see [Quick start](#quick-start).
 
 | Surface | Shows | Source |
 | --- | --- | --- |
-| 8 keys | Attention queue: agent glyph, status, repo, age | `cmux list-notifications --json` + `orca worktree ps --json` (Orca, auto-detected) |
+| 8 keys | Attention queue: agent glyph, status, repo, age | `cmux list-notifications --json`, `orca worktree ps --json`, Herdr `api snapshot` (local + saved SSH machines) (Orca/Herdr auto-detected) |
 | LCD strip (4×200×100) | One CodexBar provider per segment: session + weekly quota with pace, spend + tokens — or a single credit gauge (spend/allowance) for credit-metered providers | `codexbar serve` HTTP |
 | 4 dials | Scroll, filter, quota view, refresh | local state |
 
@@ -72,10 +75,11 @@ profile. To build from source instead, see [Quick start](#quick-start).
   [How a pane's state is derived](#how-a-panes-state-is-derived).
 - Tapping a key runs `cmux open-notification --id <uuid>`, which focuses the
   workspace + surface and marks the row read (it does not dismiss it).
-- Long-pressing a key (hold ~0.6s) runs `cmux dismiss-notification --id <uuid>`,
-  removing it from the queue ("seen it, nothing further") without switching to
-  cmux. It fires while you're still holding (you get a ✓); releasing does nothing
-  more. The key clears on the next poll.
+- Long-pressing an attention key (hold ~0.6s) snoozes it locally for five
+  minutes. It fires while you are still holding (you get a ✓); releasing does
+  nothing more. Muxboard leaves the backend notification intact, and the key
+  returns automatically if it still needs attention. Working-only keys cannot
+  be snoozed.
 - The LCD shows one segment per CodexBar provider, auto-discovered from CodexBar
   rather than a hardcoded list. Each segment carries the provider name in
   CodexBar's brand color, the session and weekly gauges with their reset times,
@@ -253,8 +257,77 @@ reachable (`orca status`), so cmux-only users see no change. Set
 and `orcaBin`/`orcaPollMs` to tune the binary path and cadence.
 
 Pressing an Orca key brings Orca forward and jumps to the worktree's most
-recent terminal (`orca terminal focus`). Orca has no dismiss primitive, so a
-long-press focuses the worktree too (which clears its unread in Orca).
+recent terminal (`orca terminal focus`). Long-pressing an attention
+key snoozes it locally for five minutes without changing Orca's unread state.
+
+## Herdr support
+
+Muxboard polls **all running local Herdr sessions**, including named sessions,
+and enabled saved SSH machine profiles, merging their agent panes with cmux and
+Orca. It polls saved machines through Herdr's noninteractive `--machine` API;
+it does not start stopped sessions or complete interactive SSH authentication.
+Each live terminal gets its own key, so two agents in one workspace and identically named panes in different sessions stay
+independent. A Herdr badge identifies the source.
+
+Herdr's structured status drives the key: `working` sinks to the end, `blocked`
+shows **NEEDS YOU** (questions and approvals), and `done` shows an unseen
+completion. Already-seen `idle` agents are omitted; an unread completion that
+Muxboard observed stays until its own key is focused, even if another pane in the
+same tab was viewed. `unknown` never implies completion. Known Claude, Codex, Pi, and OMP agents retain their existing
+visuals; other agent kinds use the neutral theme. Muxboard does not scrape
+terminal output or resume native agent conversations.
+
+Herdr provides transition sequence numbers rather than historical timestamps.
+Muxboard measures state age from transitions it observes while running; a pane
+already present at startup shows an unknown age until a transition is observed.
+Newer servers may also provide `completion_seq`; it is optional so older
+compatible servers remain usable.
+
+Herdr is auto-detected by default. Global settings `herdrBin` and `herdrPollMs`
+choose the CLI and cadence; `enableHerdr: true|false` forces the source on or off.
+An empty `herdrSessions` allow-list includes all running local sessions. To limit
+it, use exact session names, with `"default"` for the default session.
+Pressing a Herdr key discovers an existing Herdr client and brings its owning
+terminal application forward by process id. Zellij focus resolves the existing
+session, pane, and containing tab. tmux focus resolves its attached client,
+session, window, and pane; cmux focus resolves its existing workspace and terminal
+surface. Direct terminal clients use process ancestry and a verified window
+title to locate the owning application. A moved Herdr pane still resolves
+through its stable terminal identity. Long-press snoozes only that terminal
+locally for five minutes.
+
+Focus does not start another Herdr client, terminal window, or coding agent.
+If no attached host can be found, or several candidates cannot be distinguished,
+the key shows an alert and keeps the item pending. Direct terminals, Zellij,
+tmux, and cmux are supported. Discovery checks endpoint titles, live process
+ownership, and the attached frontend or socket identities before changing
+focus. Mixed nested multiplexers are rejected until their complete host route
+can be verified.
+
+Remote profiles use their saved session; they are independent of
+`herdrSessions`. Set `herdrIncludeMachines: false` for local-only polling, or
+restrict `herdrMachines` to saved profile ids/labels. Prefer opaque profile ids
+when labels are ambiguous. Remote snapshots refresh at `herdrMachinePollMs`
+(default 15 seconds), with independent failure handling so an unavailable
+machine does not hide agents on other machines. Authentication failures are
+reported without prompting or falling back to the local session. Remote CLI
+forwarding uses compatible Herdr installations when available. Older remotes
+that explicitly reject machine API forwarding use a noninteractive SSH fallback
+to the saved target and session, including the usual `~/.local/bin/herdr` install.
+Partial failures retain cached tiles and produce deduplicated failure/recovery
+messages in the plugin log.
+
+Each tile shows its session and, for a saved remote, its machine label. Herdr's
+API selects the target pane on its server; revealing the existing terminal host
+is a separate step. For remote work, the existing Herdr client must already be
+attached to the matching saved machine. The API does not switch a client's
+selected machine or attach a detached session.
+
+For Herdr 0.9.0 servers, Muxboard focuses the agent's containing tab before its
+pane so existing clients also follow API focus. Updating the CLI can leave existing
+servers on their old version; this compatibility sequence does not require
+restarting those sessions. The CLI/server end-to-end suite is exercised with
+0.9.3.
 
 ## How a pane's state is derived
 
@@ -395,11 +468,19 @@ Stored in the plugin's global settings; all fields have safe defaults
 | `codexbarPollMs` | `45000` | CodexBar poll interval |
 | `agentAliases` | `{}` | Manual override (name substring → agent); process detection is primary |
 | `busyCpuPercent` | `40` | Workspace CPU% (from `cmux top`) at/above which a running command counts as "working" |
+| `enableOrca` / `enableHerdr` | `"auto"` | Start each optional source when reachable; `true` forces polling, `false` disables it |
+| `orcaBin` / `herdrBin` | `"orca"` / `"herdr"` | CLI binary path or name |
+| `orcaPollMs` / `herdrPollMs` | `1500` | Optional source poll interval |
+| `herdrSessions` | `[]` | Exact local session allow-list; empty includes all running sessions |
+| `herdrIncludeMachines` | `true` | Include enabled saved SSH machine profiles |
+| `herdrMachines` | `[]` | Saved profile id/label allow-list; empty includes enabled profiles |
+| `herdrMachinePollMs` | `15000` | Separate, slower polling cadence for SSH machines |
 
 ## Architecture
 
 ```
   Stream Deck+ plugin ── spawns ──► cmux CLI ──► cmux socket (automation mode)
+        ├── CLI ──► Orca / Herdr local + saved SSH sessions (attention)
         └── TCP ──► codexbar serve (LCD usage)
 
 src/
@@ -410,6 +491,8 @@ src/
     types.ts
     cmux/            client (CLI wrapper), normalize (agent/reason), sort,
                      eventStatus (live state from the event stream + CPU)
+    orca/            worktree snapshot normalization + terminal focus
+    herdr/           snapshots, terminal identity, existing-host mapping + focus
     codexbar/        client (HTTP), normalize (dual-shape + error + cost)
     render/          palette, format, keyRender (SVG), lcdRender (SVG)
     services/        store, cmux/codexbar poll loops, cmuxEvents (event stream)
@@ -459,13 +542,36 @@ failure so a transient outage never blanks the display.
 ## Testing
 
 ```bash
-npm test        # 154 unit tests: normalization, slotting, dual-shape codexbar,
+npm test        # Unit tests: normalization, slotting, dual-shape codexbar,
                 # SVG structure, store dial machines, service offline retention
 npm run validate
 npm run typecheck
+npm run test:herdr:e2e  # Real Herdr CLI/server integration in isolated sessions
+npm run e2e:streamdeck # Built plugin + real SDK; simulated device/services
 ```
 
+The Herdr end-to-end harness requires `herdr` on PATH (or `HERDR_BIN`),
+creates only uniquely named `muxboard-e2e-*` sessions, and removes those sessions
+in cleanup. It does not change the default session or existing user sessions.
+
+The Stream Deck suite runs the built plugin against a real SDK WebSocket peer
+with controlled CLI and HTTP fixtures: 38 scenarios and 76 assertions cover
+rendering, source routing, and existing-host focus. It simulates device hardware
+and services; it does not connect to live SSH machines or use physical keys.
+
 ## Troubleshooting
+
+- Herdr keys are missing. Check `herdr session list --json` for running local
+  sessions, `enableHerdr`, and the `herdrSessions` allow-list. Stopped sessions
+  are outside the attention feed. For saved machines, check that the profile is
+  enabled and included in `herdrMachines`; authentication must be completed
+  separately in a terminal with `herdr machine reconnect <profile-id>`.
+- A Herdr key shows an alert without revealing the agent. Keep an existing
+  Herdr client attached in a direct terminal, Zellij, tmux, or cmux.
+  Muxboard refuses an ambiguous host match instead of choosing another window.
+  For remote work, select the matching saved machine in that client. Muxboard
+  focuses the containing tab before the agent pane for compatibility with
+  Herdr 0.9.0 servers; restarting a running session is not required.
 
 - Plugin won't start or crash-loops on first install. The Stream Deck app runs
   Node plugins with its own managed Node.js runtime, downloaded on demand. If
@@ -563,8 +669,10 @@ needs you or cmux marks it working.
 
 ## Privacy & non-goals
 
-- Localhost only. The sole network call is to CodexBar on `127.0.0.1`.
-- No terminal scraping; only cmux's structured notification fields.
+- CodexBar connects to `127.0.0.1`; enabled Herdr machine profiles also use
+  their saved SSH routes. SSH authentication never prompts from the plugin.
+- No terminal buffer scraping. Attention comes from structured source snapshots;
+  host discovery reads selected process routing metadata and window titles.
 - No destructive actions. Muxboard never dismisses cmux notifications, runs
   commands inside agents, or sends approve/deny input. It reads and focuses.
 - No cloud and no database beyond plugin settings and an in-memory cache.

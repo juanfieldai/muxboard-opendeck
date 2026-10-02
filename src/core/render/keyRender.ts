@@ -30,6 +30,8 @@ const STATUS_STYLES = {
   blocked: { text: "PERMISSION", color: "#ffb02e", borderW: 7 },
   needs: { text: "◆ NEEDS YOU", color: "#38bdf8", borderW: 6 }, // cyan: distinct from blocked's amber
   waiting: { text: "waiting", color: "#9aa0aa", borderW: 0 },
+  finished: { text: "✓ DONE", color: "#4ec9b0", borderW: 0 },
+  unknown: { text: "unknown", color: "#9aa0aa", borderW: 0 },
 } as const;
 
 /** Age → {fontSize, color}: older waits read bigger and warmer (urgency). */
@@ -58,7 +60,7 @@ export function renderKey(item: AttentionItem, opts: KeyRenderOptions): string {
   // as literal "NaNd" in the OLDEST (hottest) style — the most urgent look for
   // the one tile we know nothing about. Show a neutral "?" in the calm style
   // instead, matching formatAge's guard and sort.ts's toMs fallback.
-  const unknownAge = Number.isNaN(parsedSince);
+  const unknownAge = item.ageUnknown === true || !Number.isFinite(parsedSince);
   const ageSeconds = unknownAge ? 0 : Math.max(0, Math.floor((opts.nowMs - parsedSince) / 1000));
   const age = unknownAge ? "?" : formatAgeFromSeconds(ageSeconds);
   const ageS = ageStyle(ageSeconds);
@@ -97,6 +99,10 @@ export function renderKey(item: AttentionItem, opts: KeyRenderOptions): string {
               ? "blocked"
               : item.needsInput
                 ? "needs"
+                : item.source === "herdr" && item.reason === "finished"
+                  ? "finished"
+                  : item.source === "herdr" && item.reason === "unknown"
+                    ? "unknown"
                 : "waiting"
     ];
 
@@ -111,7 +117,8 @@ export function renderKey(item: AttentionItem, opts: KeyRenderOptions): string {
   // Title is the hero: fit the full text between the top chrome and the status
   // line — shrink + wrap (at separators) rather than truncate.
   const boxTop = 50;
-  const boxBottom = 116;
+  const provenance = item.source === "herdr" ? (item.repo?.split(" · ")[0] ?? item.herdr?.session ?? "") : "";
+  const boxBottom = provenance ? 94 : 116;
   const fit = fitText(item.title || item.repo || "?", S - 24, boxBottom - boxTop, 14, 30);
   const lineH = fit.fontSize * 1.14;
   const totalH = fit.lines.length * lineH;
@@ -123,10 +130,17 @@ export function renderKey(item: AttentionItem, opts: KeyRenderOptions): string {
     )
     .join("");
 
-  // Source badge bottom-right: the real Orca mark / a cmux monogram, tinted by
-  // source (blue=orca, green=cmux) and sized up so a key's origin reads at a
-  // glance on the physical device when both sources share the board.
+  const contextFit = fitText(provenance, S - 24, 22, 8, 11);
+  const context = provenance ? contextFit.lines.map((line, i) =>
+    `<text x="12" y="${103 + i * contextFit.fontSize}" font-size="${contextFit.fontSize}" fill="#9aa0aa">${escapeXml(line)}</text>`,
+  ).join("") : "";
+
+  // Source badge bottom-right, tinted by backend so a key's origin reads at a
+  // glance on the physical device when several sources share the board.
   const badge = sourceGlyphSvg(item.source, S - 36, S - 32, 26, sourceTint(item.source));
+  let statusSize = 15;
+  // Leave a gap before the backend badge, including wide NEEDS YOU labels.
+  while (statusSize > 9 && estTextWidth(status.text, statusSize) + status.text.length * 0.5 > S - 54) statusSize--;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
   <defs>
@@ -151,7 +165,8 @@ export function renderKey(item: AttentionItem, opts: KeyRenderOptions): string {
     }
     <text x="${S - 12}" y="34" font-size="${ageS.size}" font-weight="800" text-anchor="end" fill="${ageS.color}">${escapeXml(age)}</text>
     ${title}
-    <text x="12" y="${S - 11}" font-size="15" font-weight="800" fill="${status.color}" letter-spacing="0.5">${escapeXml(status.text)}</text>
+    ${context}
+    <text x="12" y="${S - 11}" font-size="${statusSize}" font-weight="800" fill="${status.color}" letter-spacing="0.5">${escapeXml(status.text)}</text>
     ${badge}
   </g>
 </svg>`;
@@ -215,11 +230,13 @@ export function renderEmptyKey(slotNumber: number): string {
  */
 export function renderSourceOffline(label: string): string {
   const S = KEY_SIZE;
+  let labelSize = 20;
+  while (labelSize > 10 && estTextWidth(label, labelSize) > S - 20) labelSize--;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}" viewBox="0 0 ${S} ${S}">
   <rect width="${S}" height="${S}" rx="18" fill="#1a1416"/>
   <rect x="4" y="4" width="${S - 8}" height="${S - 8}" rx="15" fill="none" stroke="#7d3b3b" stroke-width="3"/>
   <text x="${S / 2}" y="64" font-size="40" text-anchor="middle" fill="#c66">⚠</text>
-  <text x="${S / 2}" y="98" font-size="20" font-weight="700" text-anchor="middle" fill="#e6b3b3" font-family="-apple-system, Helvetica, Arial, sans-serif">${escapeXml(label)}</text>
+  <text x="${S / 2}" y="98" font-size="${labelSize}" font-weight="700" text-anchor="middle" fill="#e6b3b3" font-family="-apple-system, Helvetica, Arial, sans-serif">${escapeXml(label)}</text>
   <text x="${S / 2}" y="120" font-size="16" text-anchor="middle" fill="#b88" font-family="-apple-system, Helvetica, Arial, sans-serif">offline</text>
 </svg>`;
 }
