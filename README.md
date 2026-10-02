@@ -12,18 +12,16 @@
 
 ![Muxboard dashboard](docs/images/dashboard.png)
 
-Muxboard turns the 8 keys of an Elgato Stream Deck+ into one attention queue for
+Muxboard turns the 8 keys of an Elgato Stream Deck+ into a queue of
 [cmux](https://cmux.com/) panes, [Orca](https://onorca.dev) worktrees, and
-[Herdr](https://herdr.dev) agent sessions. Follow Claude Code, Codex, Pi,
-[OMP](https://github.com/can1357/oh-my-pi), and other agents across local sessions
-and Herdr's saved SSH machines. Keys show agents asking for input, unread
-results, and work in progress, with a source badge to identify each backend.
-Orca and Herdr are auto-detected; use any available source or combine them.
-See [Orca support](#orca-support) and [Herdr support](#herdr-support).
-
-The LCD touch strip shows CodexBar usage per provider: session and weekly quota
-with pace, plus spend and tokens — or, for credit-metered providers (CommandCode,
-Perplexity), a single credit gauge showing spend against the allowance.
+[Herdr](https://herdr.dev) sessions whose coding agents (Claude Code, Codex, Pi,
+[OMP](https://github.com/can1357/oh-my-pi), or any other) have finished, failed,
+gotten blocked, or are waiting for your input. Orca and Herdr are auto-detected;
+Herdr includes named local sessions and saved SSH machines (see
+[Orca support](#orca-support) and [Herdr support](#herdr-support)). The LCD touch
+strip shows CodexBar usage per provider: session and weekly quota with pace, plus
+spend and tokens — or, for credit-metered providers (CommandCode, Perplexity), a
+single credit gauge showing spend against the allowance.
 
 The newest attention item is key 1 (top-left); the queue fills left-to-right,
 top-to-bottom:
