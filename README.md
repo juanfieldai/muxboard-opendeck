@@ -106,9 +106,9 @@ profile. To build from source instead, see [Quick start](#quick-start).
 
 | Dial | Rotate | Press |
 | --- | --- | --- |
-| 1 | Scroll the queue (when > 8 items) | Jump to newest item |
+| 1 | Scroll the queue (when > 8 items) | Focus the first visible item |
 | 2 | Cycle filter: all → claude → codex → omp → pi | Reset filter to all |
-| 3 | Toggle the quota number: remaining% ↔ pace (reserve/deficit) | Open CodexBar `/usage` |
+| 3 | Toggle the quota number: remaining% ↔ pace (reserve/deficit) | Switch Queue ↔ Decisions; hold ~0.6s to open CodexBar `/usage` |
 | 4 | Rotate the LCD provider window (when > 4 providers) | Refresh all active sources and quota |
 
 ## Requirements
