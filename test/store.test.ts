@@ -412,11 +412,38 @@ test("a live busy-since beats a stale event since for the age clock", () => {
   assert.equal(item.activitySince, 9_999_999); // the recent busy-since, not the stale idle since
 });
 
-test("provider rotation is a no-op with 4 or fewer providers", () => {
+test("provider rotation reorders all four visible providers", () => {
   const store = new Store(["codex", "claude", "minimax", "kimi"]);
   store.rotateProviders(1);
-  assert.equal(store.getState().providerOffset, 0);
-  assert.deepEqual(store.visibleProviderWindow(), ["codex", "claude", "minimax", "kimi"]);
+  assert.equal(store.getState().providerOffset, 1);
+  assert.deepEqual(store.visibleProviderWindow(), ["claude", "minimax", "kimi", "codex"]);
+});
+
+test("two providers rotate both ways, keep blank segments, and survive refresh", () => {
+  const store = new Store(["codex", "claude"]);
+  store.rotateProviders(1);
+  assert.deepEqual(store.visibleProviderWindow(), ["claude", "codex", undefined, undefined]);
+  store.setUsage(["codex", "claude"].map(provider => ({ provider, ok: true })), 1000, false);
+  assert.deepEqual(store.visibleProviderWindow(), ["claude", "codex", undefined, undefined]);
+  store.rotateProviders(-1);
+  assert.deepEqual(store.visibleProviderWindow(), ["codex", "claude", undefined, undefined]);
+  store.rotateProviders(-3);
+  assert.deepEqual(store.visibleProviderWindow(), ["claude", "codex", undefined, undefined]);
+  store.setUsage([], 2000, true);
+  assert.deepEqual(store.visibleProviderWindow(), ["claude", "codex", undefined, undefined]);
+});
+
+test("zero or one provider has no alternative order and does not emit on rotation", () => {
+  for (const providers of [[], ["codex"]]) {
+    const store = new Store(providers);
+    let emits = 0;
+    store.subscribe(() => emits++);
+    store.rotateProviders(1);
+    store.rotateProviders(-3);
+    assert.equal(store.getState().providerOffset, 0);
+    assert.equal(emits, 0);
+    assert.deepEqual(store.visibleProviderWindow(), providers.length ? ["codex", undefined, undefined, undefined] : [undefined, undefined, undefined, undefined]);
+  }
 });
 
 test("provider rotation cycles the LCD window when there are more than 4", () => {
@@ -437,16 +464,18 @@ test("provider rotation cycles the LCD window when there are more than 4", () =>
   assert.deepEqual(store.visibleProviderWindow(), ["e", "a", "b", "c"]);
 });
 
-test("provider rotation resets when discovery drops below 5 providers", () => {
+test("provider rotation remains valid when discovery shrinks below four", () => {
   const store = new Store(["a", "b", "c", "d", "e"]);
-  store.rotateProviders(3);
-  assert.equal(store.getState().providerOffset, 3);
-  // A later poll discovers only three providers: nothing left to rotate.
+  store.rotateProviders(4);
+  assert.equal(store.getState().providerOffset, 4);
+  // A later poll discovers only three providers: wrap the active rotation.
   store.setUsage(
     ["a", "b", "c"].map((provider) => ({ provider, ok: true })),
     1000,
     false,
   );
-  assert.equal(store.getState().providerOffset, 0);
+  assert.equal(store.getState().providerOffset, 1);
+  assert.deepEqual(store.visibleProviderWindow(), ["b", "c", "a", undefined]);
+  store.rotateProviders(-1);
   assert.deepEqual(store.visibleProviderWindow(), ["a", "b", "c", undefined]);
 });

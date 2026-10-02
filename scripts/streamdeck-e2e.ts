@@ -31,7 +31,7 @@ let protocolError: unknown;
 const messages: any[] = [];
 const keySvg = new Map<string, string>();
 const dialSvg = new Map<string, string>();
-const providers = ["codex", "claude", "minimax", "kimi", "perplexity"];
+let providers = ["codex", "claude", "minimax", "kimi", "perplexity"];
 let httpRequests = 0;
 let httpFailure = false;
 
@@ -464,11 +464,13 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
   });
   await scenario("changed host PID is discovered afresh on subsequent clicks", async () => {
     const focusCount = (await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).length;
+    const machineId = image("key0").includes("east") ? "e2e-east" : "e2e-west";
+    const applicationPid = String(71000 + 321 + Object.keys(state.machines).indexOf(machineId) * 10);
     state.hostPidOffset = 321; await save();
     await tap("key0");
-    await until("changed application PID activation", async () => (await calls()).some(c => c.kind === "osascript" && c.args.includes("71321")));
+    await until("changed application PID activation", async () => (await calls()).some(c => c.kind === "osascript" && c.args.includes(applicationPid)));
     await until("changed-host native focus finishes", async () => (await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).length > focusCount);
-    expect((await calls()).some(c => c.kind === "osascript" && c.args.includes("71321")), "activation uses current process ancestry instead of fixed app identity");
+    expect((await calls()).some(c => c.kind === "osascript" && c.args.includes(applicationPid)), "activation uses current process ancestry instead of fixed app identity");
   });
   await scenario("missing existing host reports an alert without acknowledging completion", async () => {
     state = { sessions: { alpha: [{ ...agent(90, "done", "hostFailure"), completion_seq: 1 }] }, machines: {}, modes: {}, focusError: false, hostMissing: true }; await save();
@@ -619,6 +621,32 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
     expect(native.sessions.alpha.every(a => a.agent_status === "idle" && a.completion_seq === undefined), "real old schema has no completion counter and tab focus marks both agents seen");
     expect(image("key0").includes("Old B") && image("key0").includes("DONE"), "locally observed sibling completion remains unread despite tab-wide native idle");
     expect((await calls()).filter(c => c.kind === "herdr" && c.args.includes("agent") && c.args.includes("focus")).at(-1)?.args.join(" ") === "--session alpha agent focus pane104", "only selected stable terminal acknowledged");
+  });
+  await scenario("two discovered providers rotate both ways and retain their order after refresh", async () => {
+    providers = ["codex", "claude"];
+    // Start with a fresh discovery cache: missing previously known providers
+    // are otherwise intentionally recovered through individual HTTP requests.
+    await restartPlugin();
+    const ordered = (first: string, second: string) => lcd(0).includes(first) && lcd(1).includes(second);
+    const blanks = () => [2, 3].every(column => lcd(column).includes(">—<") && !lcd(column).includes("reset →"));
+    await until("two-provider discovery", () => dialSvg.size === 4 && ordered("CODEX", "CLAUDE") && blanks());
+    expect(ordered("CODEX", "CLAUDE") && blanks(), "only two discovered providers fill the first two LCD slots");
+    rotate(3, 1);
+    await until("two-provider forward rotation", () => ordered("CLAUDE", "CODEX"));
+    expect(ordered("CLAUDE", "CODEX"), "positive tick swaps both occupied slots even when all providers fit");
+    expect(blanks(), "forward rotation leaves the other two segments blank");
+    rotate(3, -1);
+    await until("two-provider reverse rotation", () => ordered("CODEX", "CLAUDE"));
+    expect(ordered("CODEX", "CLAUDE"), "negative tick reverses the rotation");
+    rotate(3, -1);
+    await until("two-provider negative wrap", () => ordered("CLAUDE", "CODEX"));
+    expect(ordered("CLAUDE", "CODEX"), "negative rotation wraps from the first provider to the last");
+    const requests = httpRequests;
+    await tap("dial3");
+    await until("rotated two-provider refresh", () => httpRequests > requests);
+    await pause(150);
+    expect(ordered("CLAUDE", "CODEX"), "successful forced discovery retains the selected provider offset");
+    expect(blanks(), "refresh preserves the two unused LCD segments");
   });
   if (protocolError) throw protocolError;
   console.log(`\n${scenarios} protocol/process E2E scenarios passed; ${assertions} explicit assertions; ${messages.filter(m => m.event === "setImage" || m.event === "setFeedback").length} SDK SVG messages decoded.`);

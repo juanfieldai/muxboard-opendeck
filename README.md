@@ -94,7 +94,8 @@ profile. To build from source instead, see [Quick start](#quick-start).
   and a footer with today's spend and tokens when available. CommandCode can
   show its monthly grant alongside rolling quotas; credit-only accounts and
   Perplexity show a credit gauge and a spend/allowance footer. Four providers
-  are visible at once; dial 4 rotates through any additional providers.
+  are visible at once; dial 4 rotates their order even with just two providers,
+  and brings additional providers into view when more than four are enabled.
 - Each gauge also carries a calm **pace** marker, comparing how much quota you've
   used against how far through the window the clock is: a faded same-hue
   extension toward where you "should" be when you're under the clock (in reserve,
@@ -109,7 +110,7 @@ profile. To build from source instead, see [Quick start](#quick-start).
 | 1 | Scroll the queue (when > 8 items) | Focus the first visible item |
 | 2 | Cycle filter: all → claude → codex → omp → pi | Reset filter to all |
 | 3 | Toggle the quota number: remaining% ↔ pace (reserve/deficit) | Switch Queue ↔ Decisions; hold ~0.6s to open CodexBar `/usage` |
-| 4 | Rotate the LCD provider window (when > 4 providers) | Refresh all active sources and quota |
+| 4 | Rotate providers in either direction, even with just two | Refresh all active sources and quota |
 
 ## Requirements
 
@@ -587,7 +588,7 @@ creates only uniquely named `muxboard-e2e-*` sessions, and removes those session
 in cleanup. It does not change the default session or existing user sessions.
 
 The Stream Deck suite runs the built plugin against a real SDK WebSocket peer
-with controlled CLI and HTTP fixtures: 42 scenarios and 85 assertions cover
+with controlled CLI and HTTP fixtures: 43 scenarios and 92 assertions cover
 rendering, source routing, existing-host focus, and completion acknowledgement
 across plugin restarts and tab-wide native seen changes. It simulates device hardware
 and services; it does not connect to live SSH machines or use physical keys.
