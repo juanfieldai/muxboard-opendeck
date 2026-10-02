@@ -296,10 +296,10 @@ export class Store {
       ...this.state,
       usage,
       providers,
-      // Keep the rotation offset valid as discovery changes the set, including
-      // when fewer providers than LCD segments are enabled.
+      // Keep the rotation offset valid as discovery changes the set: wrap it
+      // into range, and pin to 0 once everything fits on screen again.
       providerOffset:
-        providers.length > 0 ? wrap(this.state.providerOffset, providers.length) : 0,
+        providers.length > LCD_SEGMENTS ? wrap(this.state.providerOffset, providers.length) : 0,
       codexbarUpdatedAtMs: offline ? this.state.codexbarUpdatedAtMs : updatedAtMs,
       codexbarOffline: offline,
     };
@@ -375,13 +375,14 @@ export class Store {
     this.emit();
   }
 
-  // ---- dial 4: rotate the LCD provider window -------------------------------
+  // ---- dial 3: rotate the LCD provider window -------------------------------
   /**
-   * Rotate which providers occupy the four LCD segments, even when they all
-   * fit. The offset wraps in either direction; unused segments stay blank.
+   * Rotate which providers occupy the four LCD segments. A no-op unless there
+   * are more providers than segments (otherwise all are already visible). The
+   * offset wraps, so the window cycles endlessly in either direction.
    */
   rotateProviders(delta: number): void {
-    if (this.state.providers.length <= 1) return;
+    if (this.state.providers.length <= LCD_SEGMENTS) return;
     const next = wrap(this.state.providerOffset + delta, this.state.providers.length);
     if (next === this.state.providerOffset) return;
     this.state = { ...this.state, providerOffset: next };

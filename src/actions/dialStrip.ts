@@ -75,8 +75,8 @@ export class DialStripAction extends SingletonAction {
         this.runtime.store.cycleNumberMode();
         break;
       case 3:
-        // Rotate the LCD provider order even when every provider fits.
-        // Multi-tick spins move proportionally and wrap in either direction.
+        // Rotate the LCD provider window when there are more providers than
+        // segments (a no-op otherwise). Multi-tick spins move proportionally.
         this.runtime.store.rotateProviders(ticks);
         break;
     }
@@ -157,7 +157,7 @@ export class DialStripAction extends SingletonAction {
       Date.now(),
       this.runtime.codexbarService.staleThresholdMs,
     );
-    // One provider per segment, in display order with the dial-4 rotation
+    // One provider per segment, in display order with the dial-3 rotation
     // offset applied, so a list longer than four segments can be scrolled through.
     const usages = this.runtime.store
       .visibleProviderWindow()
