@@ -17,10 +17,10 @@ payload shapes CodexBar emits:
 The provider list is discovered from CodexBar, rather than limited to the
 examples in the dashboard image. Enabled Codex, Claude, MiniMax, Kimi, Gemini,
 CommandCode, Perplexity, and other providers exposed by the server share the
-same LCD; `codexbarProviders` can restrict or reorder them.
+same LCD. `codexbarProviders` can restrict or reorder them.
 
 Each window provides `usedPercent`, `resetsAt`, `windowMinutes`, and a
-`resetDescription`; for ordinary rate-limit providers, `primary` is usually the
+`resetDescription`. For ordinary rate-limit providers, `primary` is usually the
 session (5h) and `secondary` the weekly (7d) window.
 
 ## Credit pools and monthly grants
@@ -42,7 +42,7 @@ recurring, purchased, and promotional pools across its windows (`primary` is
 null when the recurring grant is exhausted or absent). Muxboard gauges
 Perplexity's recurring pool while it has credit left, then falls back to
 purchased and finally promotional credit, parsing the optional
-promotion-expiry suffix; when every pool is drained it keeps the recurring
+promotion-expiry suffix. When every pool is drained it keeps the recurring
 grant's own numbers rather than an empty `0/0` bucket.
 
 These two are matched by provider id, not by the shape of their display string,
@@ -66,9 +66,9 @@ return `status: "blocked"` rather than attempt decryption. CodexBar v0.46.0
 also had a separate session-persistence bug
 ([steipete/CodexBar#2541](https://github.com/steipete/CodexBar/issues/2541)),
 fixed upstream by
-[steipete/CodexBar#2564](https://github.com/steipete/CodexBar/pull/2564);
-upgrade affected builds before retrying. Muxboard renders provider errors as
-unavailable, and the tile populates on its own once CodexBar returns usage; it
+[steipete/CodexBar#2564](https://github.com/steipete/CodexBar/pull/2564).
+Upgrade affected builds before retrying. Muxboard renders provider errors as
+unavailable, and the tile populates on its own once CodexBar returns usage. It
 is a pure consumer of `codexbar serve` and has no cookie configuration of its own.
 
 ## Perplexity authentication and rate limits
@@ -76,20 +76,20 @@ is a pure consumer of `codexbar serve` and has no cookie configuration of its ow
 Perplexity has two observed failure modes, told apart by the message.
 `codexbar serve` can answer
 `{"code":1,"message":"No available fetch strategy for perplexity"}` when no
-session cookie is currently resolvable; a refresh in the CodexBar UI may recover
+session cookie is currently resolvable. A refresh in the CodexBar UI may recover
 it if a valid browser session is available. Separately, `serve` can return a
 provider error payload containing `Perplexity API error: HTTP 429`, indicating
 rate limiting even with a valid cookie. Cookie refresh does not resolve rate
-limiting; allow the limit to subside before retrying. Muxboard renders either
-provider error as unavailable and restores the gauge on a successful poll; it
+limiting. Allow the limit to subside before retrying. Muxboard renders either
+provider error as unavailable and restores the gauge on a successful poll. It
 does not request authentication or cookie refreshes from CodexBar.
 
 ## Pace, costs, and staleness
 
 The pace marker/number is derived locally from `resetsAt` + `windowMinutes`
-(elapsed-vs-used); windows with no time bounds (e.g. an "Unlimited" weekly) show
+(elapsed-vs-used). Windows with no time bounds (e.g. an "Unlimited" weekly) show
 no pace. Today's spend and token count come from `/cost?provider=<p>` (a daily
-series; amounts are treated as USD since CodexBar emits no currency code). A
+series). Amounts are treated as USD since CodexBar emits no currency code. A
 provider that returns an `{ error }` object (e.g. an expired token) is shown as
 unavailable. The strip is flagged `STALE` when its last non-offline poll is older
 than 2× the poll interval. This is a global poll clock, not an age check on each

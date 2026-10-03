@@ -47,7 +47,7 @@ and worktree unread flag to distinguish those cases.
 Deck app's `ProfilesV3` store (the app's own V3 format, keyed to the connected
 Stream Deck+'s device id), placing the Attention Slot action on all 8 keys and
 the Muxboard Dial on all 4 dials. Run it with the app closed
-(`npm run install-profile`); the app picks it up on next launch and you select it
+(`npm run install-profile`). The app picks it up on next launch and you select it
 from the profile dropdown.
 
 This deliberately bypasses the app's profile importer, which rejects
@@ -68,10 +68,10 @@ failure so a transient outage never blanks the display.
 The plugin reads Stream Deck global settings once when it connects. There is
 currently no settings editor in the property inspector. For a source build,
 adjust the fallbacks in [src/config.ts](../src/config.ts). Most fields use
-`DEFAULT_CONFIG`; source enablement falls back to `"auto"` in `coerceEnableOrca`,
+`DEFAULT_CONFIG`. Source enablement falls back to `"auto"` in `coerceEnableOrca`,
 while Herdr allow-lists and machine inclusion fall back to `[]` and `true`
 inside `resolveConfig`. For those fields, also change the matching resolver
-fallback; editing `DEFAULT_CONFIG` alone is insufficient. Rebuild with
+fallback because editing `DEFAULT_CONFIG` alone is insufficient. Rebuild with
 `npm run build` and fully quit and reopen Stream Deck to reload the plugin.
 Previously stored global settings override these fallbacks.
 
@@ -80,7 +80,7 @@ Previously stored global settings override these fallbacks.
 `npm run dev` builds and links the plugin, starts a background CodexBar server
 if needed, and keeps watching for code changes. Use another terminal for
 `npm run install-profile`, or stop the watcher with Ctrl-C first. The watcher
-starts CodexBar without launchd supervision; use the keep-alive installer in
+starts CodexBar without launchd supervision. Use the keep-alive installer in
 [CodexBar support](../README.md#codexbar-support) for persistent use. Fully quit
 and reopen Stream Deck if the CLI's plugin restart does not load a rebuilt
 bundle. Manifest changes may also require re-linking.
@@ -93,7 +93,7 @@ npm test        # Unit tests: normalization, slotting, dual-shape codexbar,
 npm run validate
 npm run typecheck
 npm run test:herdr:e2e  # Real Herdr CLI/server integration in isolated sessions
-npm run e2e:streamdeck # Built plugin + real SDK; simulated device/services
+npm run e2e:streamdeck # Built plugin + real SDK with simulated device/services
 ```
 
 The Herdr end-to-end harness requires Herdr ≥ 0.9.3 on PATH (or `HERDR_BIN`),
@@ -104,14 +104,14 @@ The Stream Deck suite runs the built plugin against a real SDK WebSocket peer
 with controlled CLI and HTTP fixtures: 49 scenarios and 103 assertions cover
 rendering, source and agent filters, source routing, existing-host focus, and
 completion acknowledgement across plugin restarts and tab-wide native seen
-changes. It simulates device hardware and services; it does not connect to live
+changes. It simulates device hardware and services. It does not connect to live
 SSH machines or use physical keys.
 
 ## Plugin troubleshooting
 
 - **`require is not defined` / exit code 1:** the bundle must be CommonJS with
   a `.cjs` extension because the package uses `"type": "module"`. `npm run build`
-  emits `bin/plugin.cjs`; the manifest's `CodePath` points at it.
+  emits `bin/plugin.cjs`. The manifest's `CodePath` points at that file.
 - **Manifest changes do not appear:** run
   `npx streamdeck link com.mrshu.muxboard.sdPlugin` again and fully quit and
   reopen Stream Deck. A plugin restart alone does not re-read the manifest.

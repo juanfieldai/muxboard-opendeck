@@ -5,13 +5,13 @@
 ## The cmux notification contract
 
 The cmux source consumes notifications: agents make a pane "need
-attention" by emitting one. cmux already does this for built-in agents; for
+attention" by emitting one. cmux already does this for built-in agents. For
 custom agents, emit a notification (e.g. from an agent hook) shaped like the
 rows returned by `cmux list-notifications --json`:
 
 ```jsonc
 {
-  "id": "015D0B50-...",           // uuid; used as the focus/open key
+  "id": "015D0B50-...",           // uuid used as the focus/open key
   "title": "Claude Code",         // agent → claude | codex | omp | pi | unknown
   "subtitle": "",
   "body": "Claude is waiting for your input",   // status (see mapping)
@@ -34,8 +34,8 @@ The notification reason uses structured fields, strongest signal first:
 | Reason | Signal | Appearance |
 | --- | --- | --- |
 | `failed` | `subtitle` contains error, fail, failed, crash, or crashed | Red failure border |
-| `blocked` | `subtitle` contains permission or approval; or `body` uses a permission-request phrase such as “needs permission” or “awaiting approval” | Amber permission badge |
-| `waiting` | Any other notification | Waiting; live activity may override it |
+| `blocked` | `subtitle` contains permission or approval, or `body` uses a permission-request phrase such as “needs permission” or “awaiting approval” | Amber permission badge |
+| `waiting` | Any other notification | Waiting, unless live activity overrides it |
 
 Free-form body text such as “fixed the error” does not imply failure, and
 completion wording alone does not produce a `finished` cmux tile.
@@ -62,16 +62,16 @@ Notes:
 ## How a pane's state is derived
 
 A key shows a status (working, waiting, permission, or failed) and an age.
-Neither comes from a single cmux field; cmux's notifications, title spinner, and
+Neither comes from a single cmux field. cmux's notifications, title spinner, and
 agent state each tell a partial, often-stale story. Muxboard fuses several
 signals so a key reflects what is actually true, which in practice is frequently
 more accurate than any one cmux surface on its own. Each signal is best-effort
 and degrades to the next when unavailable.
 
 1. Queue membership and the reason come from `cmux list-notifications`. A
-   notification puts a pane on a key; its reason is `failed`, `blocked`, or
-   `waiting` (see the table above). Failure detection uses the subtitle;
-   permission detection also recognizes specific body phrases. cmux flips
+   notification puts a pane on a key with a reason of `failed`, `blocked`, or
+   `waiting` (see the table above). Failure detection uses the subtitle.
+   Permission detection also recognizes specific body phrases. cmux flips
    `is_read` when you see a notification,
    not when you resolve it, so a read (`is_read: true`) permission/failure is
    demoted to `waiting` — the key stays visible but loses its urgent badge —
@@ -82,9 +82,9 @@ and degrades to the next when unavailable.
 2. Activity (working vs waiting) comes from the `cmux events` stream. Muxboard
    prefers cmux's own computed verdict (`set_status`: `Running`, `Idle`, `Needs`),
    the same state that drives cmux's UI. For workspaces cmux doesn't publish a
-   status for, it derives state from raw agent hooks (`UserPromptSubmit` and
-   `PreToolUse` → working; `Stop` and `SessionEnd` → idle; `Notification` and
-   `AskUserQuestion` → needs). A working pane shows `● working` and sinks below
+   status for, it derives state from raw agent hooks. `UserPromptSubmit` and
+   `PreToolUse` mean working. `Stop` and `SessionEnd` mean idle. `Notification`
+   and `AskUserQuestion` mean needs. A working pane shows `● working` and sinks below
    the panes still waiting on you, since it no longer needs you. The title spinner
    glyph is the fallback when the stream is unavailable.
 
@@ -103,7 +103,7 @@ Grid priority, front to back: failed, then permission, then needs-input (cmux's
 "Needs" status, shown as a prominent `◆ NEEDS YOU` badge), then stalled agents,
 then other waiting/results, and actively-working last. Items are newest-first
 within each priority band. Actively-working panes are
-listed even without a notification; they land at the very end, so the panes that
+listed even without a notification. They land at the very end, so the panes that
 need you always stay up front, and pressing one focuses its workspace.
 
 Known limitation: a Claude agent waiting on its own background subagent does that
@@ -122,7 +122,7 @@ so a direct `cmux` call is rejected with "broken pipe". Setting
 the same user, which is what lets the plugin spawn cmux directly. This is the
 approach the [gonzaloserrano/streamdeck-cmux](https://github.com/gonzaloserrano/streamdeck-cmux)
 plugin also uses. (Note: on some builds and macOS versions the mode reportedly
-doesn't take effect; see upstream issues
+doesn't take effect. See upstream issues
 [#1864](https://github.com/manaflow-ai/cmux/issues/1864) /
 [#3282](https://github.com/manaflow-ai/cmux/issues/3282), and verify with
 `cmux capabilities | grep access_mode`.)
@@ -141,7 +141,7 @@ PATH shim. Diagnose:
 
 ```bash
 which claude        # if it's ~/.local/bin/claude (not a .../cmux-cli-shims/... path), the shim is shadowed
-cmux events --limit 5   # codex emits agent.hook.* while working; Claude emits none
+cmux events --limit 5   # codex emits agent.hook.* while working, but Claude emits none
 ```
 
 Fix: make cmux's shim win on PATH by re-prepending its shim dir after your PATH
@@ -160,8 +160,13 @@ end
 
 ```zsh
 # ~/.zshrc
-for __d in ${(s/:/)PATH}; do
-  if [[ "$__d" == *cmux-cli-shims* ]]; then export PATH="$__d:$PATH"; break; fi
+for __d in ${(s/:/)PATH}
+do
+  if [[ "$__d" == *cmux-cli-shims* ]]
+  then
+    export PATH="$__d:$PATH"
+    break
+  fi
 done
 unset __d
 ```
@@ -175,7 +180,7 @@ path. Verify hooks with `cmux events --limit 5`: you should now see
 Without the agent-hook stream, a busy command can still supply its observed
 start time through `cmux top`. Age falls back to notification time when neither
 live state nor a busy-start timestamp is available. Once hooks fire (see above),
-age reflects live activity; an agent merely waiting on remote inference has no
+age reflects live activity. An agent merely waiting on remote inference has no
 local CPU signal.
 
 ### Why is an active cmux agent not on a key?
