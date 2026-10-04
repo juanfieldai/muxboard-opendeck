@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmod, copyFile, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -115,7 +115,10 @@ try {
   await save();
   await writeFile(callsPath, "");
   await copyFile(join(root, "com.mrshu.muxboard.sdPlugin/manifest.json"), join(temporary, "manifest.json"));
-  const fixture = `#!${process.execPath}
+  // A runtime path can contain spaces, which kernel shebang parsing rejects.
+  // The temporary PATH entry keeps every fixture on the selected runtime.
+  await symlink(process.execPath, join(temporary, "node"));
+  const fixture = `#!/usr/bin/env node
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 const file = process.env.MUXBOARD_E2E_STATE;
@@ -160,10 +163,10 @@ if (args[0] === 'session' && args[1] === 'list') {
   const hostFixture = join(temporary, "host-command");
   const preload = join(temporary, "host-preload.cjs");
   await writeFile(herdrBin, fixture);
-  await writeFile(offlineBin, `#!${process.execPath}\nprocess.stderr.write('controlled offline fixture'); process.exitCode=1;\n`);
-  await writeFile(openBin, `#!${process.execPath}\nrequire('node:fs').appendFileSync(process.env.MUXBOARD_E2E_CALLS, JSON.stringify({kind:'open',args:process.argv.slice(2)})+'\\n');\n`);
+  await writeFile(offlineBin, `#!/usr/bin/env node\nprocess.stderr.write('controlled offline fixture'); process.exitCode=1;\n`);
+  await writeFile(openBin, `#!/usr/bin/env node\nrequire('node:fs').appendFileSync(process.env.MUXBOARD_E2E_CALLS, JSON.stringify({kind:'open',args:process.argv.slice(2)})+'\\n');\n`);
   const hostCommands = ["ps", "pgrep", "osascript", "zellij", "ssh", "tmux", "cmux"];
-  await writeFile(hostFixture, `#!${process.execPath}
+  await writeFile(hostFixture, `#!/usr/bin/env node
 const fs=require('node:fs'), kind=process.argv[2], args=process.argv.slice(3), state=JSON.parse(fs.readFileSync(process.env.MUXBOARD_E2E_STATE,'utf8'));
 fs.appendFileSync(process.env.MUXBOARD_E2E_CALLS,JSON.stringify({kind,args})+'\\n');
 const local=Object.keys(state.sessions).map(session=>({session,zsession:'host-local-'+session,title:'fixture-workspace'}));
