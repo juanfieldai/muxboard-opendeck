@@ -250,7 +250,7 @@ cp.execFile[require('node:util').promisify.custom]=function(bin,args,options){re
     child = spawn(process.execPath, ["--require", preload, bundle, "-port", String(ws.address().port), "-pluginUUID", "e2e-plugin",
       "-registerEvent", "registerPlugin", "-info", JSON.stringify({
         application: { version: "7.3.0", platform: "mac", language: "en", platformVersion: "15.0" },
-        plugin: { uuid: "com.mrshu.muxboard", version: "0.1.0" },
+        plugin: { uuid: "com.mrshu.muxboard", version: "0.2.0" },
         devices: [{ id: "e2e-device", type: 7, name: "Stream Deck + fixture", size: { columns: 4, rows: 2 } }],
         devicePixelRatio: 2, colors: {},
       })], { cwd: temporary, env: { ...process.env, PATH: `${temporary}:${process.env.PATH ?? ""}`,

@@ -21,7 +21,7 @@ import { join } from "node:path";
 const STORE = join(homedir(), "Library/Application Support/com.elgato.StreamDeck/ProfilesV3");
 const ATTENTION_UUID = "com.mrshu.muxboard.attention";
 const DIAL_UUID = "com.mrshu.muxboard.dial";
-const PLUGIN = { Name: "Muxboard", UUID: "com.mrshu.muxboard", Version: "0.1.0.0" };
+const PLUGIN = { Name: "Muxboard", UUID: "com.mrshu.muxboard", Version: "0.2.0.0" };
 
 if (!existsSync(STORE)) {
   console.error(`Stream Deck profile store not found: ${STORE}`);

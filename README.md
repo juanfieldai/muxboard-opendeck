@@ -39,9 +39,9 @@ You need macOS, Node.js ≥ 20, a Stream Deck+, the
 [Elgato Stream Deck app](https://www.elgato.com/stream-deck), and at least one
 attention source: cmux, Orca, or Herdr. CodexBar is optional for the LCD.
 
-**Release or source build?** The packaged [v0.1.0 release](https://github.com/mrshu/muxboard/releases/tag/v0.1.0)
-supports cmux. For Orca, Herdr, and the controls described here,
-[build from source](#build-from-source).
+The packaged [v0.2.0 release](https://github.com/mrshu/muxboard/releases/tag/v0.2.0)
+includes cmux, Orca, Herdr, and the controls described here. To customize the
+plugin, [build from source](#build-from-source).
 
 To install the latest packaged release:
 

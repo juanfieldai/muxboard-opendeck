@@ -1,6 +1,6 @@
 {
   "name": "muxboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Stream Deck+ dashboard for cmux, Orca, and Herdr coding agents, with live attention keys and CodexBar quotas, pace, spend, tokens, and credits on the LCD.",
   "type": "module",
   "license": "MIT",
