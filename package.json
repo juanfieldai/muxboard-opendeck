@@ -5,13 +5,13 @@
   "type": "module",
   "license": "MIT",
   "author": "mrshu",
-  "homepage": "https://github.com/juanfieldai/muxboard#readme",
+  "homepage": "https://github.com/juanfieldai/muxboard-opendeck#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/juanfieldai/muxboard.git"
+    "url": "git+https://github.com/juanfieldai/muxboard-opendeck.git"
   },
   "bugs": {
-    "url": "https://github.com/juanfieldai/muxboard/issues"
+    "url": "https://github.com/juanfieldai/muxboard-opendeck/issues"
   },
   "keywords": [
     "stream-deck",

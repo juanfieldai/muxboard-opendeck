@@ -16,8 +16,8 @@ Requirements:
 Close OpenDeck before installation:
 
 ```sh
-git clone https://github.com/juanfieldai/muxboard.git
-cd muxboard
+git clone https://github.com/juanfieldai/muxboard-opendeck.git
+cd muxboard-opendeck
 npm ci
 npm run install:opendeck
 node scripts/opendeck-profile.mjs n1-YOUR_DEVICE_SERIAL
