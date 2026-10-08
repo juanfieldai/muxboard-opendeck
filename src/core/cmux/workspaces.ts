@@ -14,14 +14,22 @@ export interface WorkspaceInfo {
 }
 
 /**
+ * Optional leading `π` marker that OMP/Pi put before their own status glyph
+ * when they title a workspace: `π ⠇ task` while working, `π > task` when idle.
+ * Only matched when a status glyph follows, so a title like "π notes" is kept.
+ */
+const PI_PREFIX = /^\s*π\s+(?=[>⠀-⣿])/u;
+
+/**
  * True iff a title leads with cmux's animated braille spinner (U+2800–U+28FF),
  * which cmux shows ONLY while the agent is actively working. A leading ✳
  * (U+2733) is cmux's idle/waiting marker and deliberately does NOT match — it
- * would otherwise flag every idle Claude pane as working. Shared by the
- * workspace-title heuristic and the per-surface-title check in agents.ts.
+ * would otherwise flag every idle Claude pane as working. An OMP/Pi `π` marker
+ * before the glyph is skipped. Shared by the workspace-title heuristic and the
+ * per-surface-title check in agents.ts.
  */
 export function hasSpinnerGlyph(title: string): boolean {
-  return /^\s*[⠀-⣿]/.test(title);
+  return /^\s*[⠀-⣿]/.test(title.replace(PI_PREFIX, ""));
 }
 
 /**
@@ -33,9 +41,11 @@ export function detectActivity(rawTitle: string): Activity {
   return hasSpinnerGlyph(rawTitle) ? "working" : "waiting";
 }
 
-/** Strip cmux's leading spinner/✳ status glyphs and collapse whitespace. */
+/** Strip leading status glyphs (cmux spinner/✳, OMP/Pi `π ⠇`/`π >`) and collapse whitespace. */
 export function cleanTitle(s: string): string {
   return s
+    .replace(PI_PREFIX, "")
+    .replace(/^\s*>\s+/, "") // OMP/Pi idle marker (only reachable after the π prefix)
     .replace(/^[\s⠀-⣿✳️*✳]+/u, "") // braille spinner frames, ✳, VS16, *
     .replace(/\s+/g, " ")
     .trim();

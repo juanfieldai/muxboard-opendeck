@@ -7,7 +7,7 @@ import {
 } from "../src/core/cmux/normalize.js";
 import { parseCodingAgents, parseSurfaceActivity } from "../src/core/cmux/agents.js";
 import { toAgentKind } from "../src/core/types.js";
-import { hasSpinnerGlyph } from "../src/core/cmux/workspaces.js";
+import { hasSpinnerGlyph, parseWorkspaceInfo } from "../src/core/cmux/workspaces.js";
 import {
   assignSlots,
   clampOffset,
@@ -164,6 +164,23 @@ test("hasSpinnerGlyph matches the braille working spinner, not the ✳ idle mark
   assert.equal(hasSpinnerGlyph("✳ View for refs to see assigned matches"), false);
   assert.equal(hasSpinnerGlyph("RCJ Scoreboard"), false);
   assert.equal(hasSpinnerGlyph(""), false);
+});
+
+test("parseWorkspaceInfo reads OMP's `π <glyph> task` workspace titles", () => {
+  // OMP retitles its cmux workspace as `π ⠇ task` while working and `π > task`
+  // when idle; the π prefix must not hide the spinner or leak into the key text.
+  const row = (id: string, title: string) => ({ id, title, custom_title: title, has_custom_title: true });
+  const info = parseWorkspaceInfo({
+    workspaces: [
+      row("WS-WORK", "π ⠇ Stabilize finding context"),
+      row("WS-IDLE", "π > Deploy theses offer"),
+      row("WS-PI", "π notes"),
+    ],
+  });
+  assert.deepEqual(info.get("WS-WORK"), { title: "Stabilize finding context", color: undefined, activity: "working" });
+  assert.deepEqual(info.get("WS-IDLE"), { title: "Deploy theses offer", color: undefined, activity: "waiting" });
+  // A plain π with no status glyph after it is part of the title.
+  assert.deepEqual(info.get("WS-PI"), { title: "π notes", color: undefined, activity: "waiting" });
 });
 
 test("parseSurfaceActivity marks a workspace working from a surface-title spinner", () => {

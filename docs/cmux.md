@@ -86,7 +86,9 @@ and degrades to the next when unavailable.
    `PreToolUse` mean working. `Stop` and `SessionEnd` mean idle. `Notification`
    and `AskUserQuestion` mean needs. A working pane shows `● working` and sinks below
    the panes still waiting on you, since it no longer needs you. The title spinner
-   glyph is the fallback when the stream is unavailable.
+   glyph is the fallback when the stream is unavailable. OMP's own workspace
+   titles (`π ⠇ task` while working, `π > task` when idle) are recognized too,
+   and the `π`/glyph prefix is stripped from the key text.
 
 3. Age is the time since the current state began (the transition `occurred_at`),
    so a key reads "working for 2m" or "waiting since 09:31" rather than the age of
