@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { normalizeNotifications } from "../src/core/cmux/normalize.js";
-import { normalizeWorktrees } from "../src/core/orca/normalize.js";
+import { normalizeWorktrees, type RawOrcaTerminal } from "../src/core/orca/normalize.js";
 import { normalizeHerdrAgent, type HerdrAgent, type HerdrSession } from "../src/core/herdr/normalize.js";
 import {
   normalizeUsageResponse,
@@ -57,8 +57,8 @@ function main(): void {
     reason: "waiting", activity: "working", color: "#2f6df6",
     createdAt: "2026-06-20T12:09:30Z", synthetic: true,
   };
-  const orcaRaw = loadFixture("orca-worktree-ps.json") as { result: { worktrees: unknown[] } };
-  const orcaItems = normalizeWorktrees(orcaRaw.result.worktrees, new Date("2026-06-23T12:05:00Z").toISOString());
+  const orcaRaw = loadFixture("orca-attention.json") as { worktrees: unknown[]; terminals: RawOrcaTerminal[] };
+  const orcaItems = normalizeWorktrees(orcaRaw.worktrees, new Date("2026-06-23T12:05:00Z").toISOString(), orcaRaw.terminals);
   // Use the real adapter so Herdr's blocked -> NEEDS YOU and native done ->
   // DONE semantics, source badge, and endpoint provenance match the device.
   // Bootstrap snapshots intentionally have unknown historical age.

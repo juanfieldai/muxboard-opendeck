@@ -1,17 +1,17 @@
 {
   "name": "muxboard",
   "version": "0.2.0",
-  "description": "Stream Deck+ dashboard for cmux, Orca, and Herdr coding agents, with live attention keys and CodexBar quotas, pace, spend, tokens, and credits on the LCD.",
+  "description": "Native OpenDeck dashboard for Orca coding agents on Mirabox N1/MSD NEO, with the original macOS Stream Deck+ host retained.",
   "type": "module",
   "license": "MIT",
   "author": "mrshu",
-  "homepage": "https://github.com/mrshu/muxboard#readme",
+  "homepage": "https://github.com/juanfieldai/muxboard#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrshu/muxboard.git"
+    "url": "git+https://github.com/juanfieldai/muxboard.git"
   },
   "bugs": {
-    "url": "https://github.com/mrshu/muxboard/issues"
+    "url": "https://github.com/juanfieldai/muxboard/issues"
   },
   "keywords": [
     "stream-deck",

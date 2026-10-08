@@ -1,0 +1,20 @@
+{
+  "worktrees": [
+    {
+      "worktreeId": "r1::/p/auth",
+      "repo": "auth-svc",
+      "displayName": "fix-login",
+      "agents": [{ "paneKey": "tab-auth:leaf-auth", "state": "blocked", "agentType": "claude", "taskTitle": "fix-login", "stateStartedAt": 1782174600000 }]
+    },
+    {
+      "worktreeId": "r2::/p/api",
+      "repo": "api",
+      "displayName": "perf",
+      "agents": [{ "paneKey": "tab-api:leaf-api", "state": "working", "agentType": "opencode", "taskTitle": "perf", "stateStartedAt": 1782174500000 }]
+    }
+  ],
+  "terminals": [
+    { "handle": "term-auth", "worktreeId": "r1::/p/auth", "tabId": "tab-auth", "leafId": "leaf-auth", "agentIdentity": "claude", "connected": true },
+    { "handle": "term-api", "worktreeId": "r2::/p/api", "tabId": "tab-api", "leafId": "leaf-api", "agentIdentity": "opencode", "connected": true }
+  ]
+}
