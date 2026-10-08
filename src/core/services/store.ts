@@ -21,7 +21,7 @@ import {
 type Listener = (state: AppState) => void;
 
 /** Cycle order for the agent filter (dial 2). */
-const FILTER_CYCLE: AgentFilter[] = ["all", "claude", "codex", "omp", "pi"];
+const FILTER_CYCLE: AgentFilter[] = ["all", "claude", "codex", "omp", "pi", "opencode"];
 const SOURCE_FILTER_CYCLE: SourceFilter[] = ["all", "cmux", "orca", "herdr"];
 
 /** Number of LCD touch-strip segments (one per dial). */
@@ -69,7 +69,7 @@ export class Store {
   private readonly snoozed = new Map<string, number>();
   private readonly now: () => number;
 
-  constructor(providers: string[] = [], now: () => number = () => Date.now()) {
+  constructor(providers: string[] = [], now: () => number = () => Date.now(), private readonly keyCount = KEY_COUNT) {
     this.now = now;
     this.state = {
       items: [],
@@ -131,7 +131,7 @@ export class Store {
     // The Decisions view (col-2 push) shows only the panes that want a human
     // now (failed/permission/needs-input), dropping working/waiting tiles.
     const items = this.state.view === "decisions" ? triaged.filter(isDecision) : triaged;
-    const offset = clampOffset(this.state.offset, items.length);
+    const offset = clampOffset(this.state.offset, items.length, this.keyCount);
     this.state = { ...this.state, items, offset };
   }
 
@@ -313,7 +313,7 @@ export class Store {
 
   // ---- dial 1: scroll offset ------------------------------------------------
   scrollBy(delta: number): void {
-    const offset = clampOffset(this.state.offset + delta, this.state.items.length);
+    const offset = clampOffset(this.state.offset + delta, this.state.items.length, this.keyCount);
     if (offset === this.state.offset) return;
     this.state = { ...this.state, offset };
     this.emit();
@@ -326,11 +326,11 @@ export class Store {
   }
 
   /**
-   * Advance one screen, for the "+N more" pager tile. The pager occupies the
-   * last key when the queue overflows, so a page is KEY_COUNT-1 real items.
+   * Advance one screen for the pager tile. Overflow pages reserve the last
+   * key for NEXT and show (keyCount − 1) real items.
    */
   pageForward(): void {
-    this.scrollBy(KEY_COUNT - 1);
+    this.scrollBy(this.keyCount - 1);
   }
 
   /** The newest currently-visible item (slot 0), or null. */
@@ -377,7 +377,7 @@ export class Store {
 
   // ---- col-2 push: toggle the board view (queue <-> decisions) --------------
   /**
-   * Flip the 8-key board between the full triage queue and the Decisions view
+   * Flip the board between the full triage queue and the Decisions view
    * (only failed/permission/needs-input). Resets the scroll offset and
    * recomputes since the visible set changes. With two views every push is its
    * own undo; it is seeded "queue" and not persisted across reloads.

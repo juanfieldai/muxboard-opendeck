@@ -6,6 +6,27 @@ import type { AttentionItem } from "../src/core/types.js";
 import { attentionEntityKey } from "../src/core/types.js";
 import { loadFixture } from "./helpers.js";
 
+test("N1 keeps agents nine through fifteen on the first page without unnecessary scrolling", () => {
+  const store = new Store([], () => 0, 15);
+  const agents = Array.from({ length: 15 }, (_, i) => mkItem({ id: `agent-${String(i).padStart(2, "0")}` }));
+  store.setAttention(agents, false);
+  store.scrollBy(3);
+  assert.equal(store.getState().offset, 0);
+  assert.deepEqual(store.getState().items.map(item => item.id), agents.map(item => item.id));
+});
+
+test("N1 overflow paging reaches the next fourteen agents and clamps after sessions close", () => {
+  const store = new Store([], () => 0, 15);
+  const agents = Array.from({ length: 31 }, (_, i) => mkItem({ id: `agent-${String(i).padStart(2, "0")}` }));
+  store.setAttention(agents, false);
+  store.pageForward();
+  assert.equal(store.newestVisible()?.id, "agent-14");
+  store.pageForward();
+  assert.equal(store.newestVisible()?.id, "agent-28");
+  store.setAttention(agents.slice(0, 10), false);
+  assert.equal(store.newestVisible()?.id, "agent-00");
+});
+
 function freshStore(): Store {
   const store = new Store(["codex", "claude"]);
   store.setAttention(normalizeNotifications(loadFixture("cmux-notifications.json")), false);
@@ -182,14 +203,14 @@ test("agent filter narrows items and resets offset", () => {
   assert.equal(store.getState().filter, "all");
 });
 
-test("the filter cycle includes omp before pi, then wraps to all", () => {
-  const store = freshStore();
-  const seen: string[] = [];
-  for (let i = 0; i < 6; i++) {
-    store.cycleFilter(1);
-    seen.push(store.getState().filter);
-  }
-  assert.deepEqual(seen, ["claude", "codex", "omp", "pi", "all", "claude"]);
+test("agent filtering can isolate OpenCode alongside OMP and reset to every agent", () => {
+  const store = new Store();
+  store.setAttention([mkItem({ id: "oc", agent: "opencode" }), mkItem({ id: "omp", agent: "omp" })], false);
+  for (let i = 0; i < 5; i++) store.cycleFilter(1);
+  assert.equal(store.getState().filter, "opencode");
+  assert.deepEqual(store.getState().items.map(item => item.id), ["oc"]);
+  store.cycleFilter(1);
+  assert.deepEqual(store.getState().items.map(item => item.id), ["oc", "omp"]);
 });
 
 test("source filter isolates the same agent across all three backends", () => {

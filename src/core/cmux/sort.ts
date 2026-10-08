@@ -84,22 +84,14 @@ export function dedupeNewestPerWorkspace(sortedNewestFirst: AttentionItem[]): At
   return out;
 }
 
-/**
- * Assign sorted items to the 8 physical key slots.
- *
- * Physical layout is:
- *   slot 0 1 2 3   (keys 1 2 3 4)
- *   slot 4 5 6 7   (keys 5 6 7 8)
- *
- * `offset` shifts the visible window when there are more than 8 items. The
- * result always has exactly KEY_COUNT entries; empty slots are null.
- */
+/** Assign items to the physical grid; unused slots remain empty. */
 export function assignSlots(
   sortedItems: AttentionItem[],
   offset = 0,
+  keyCount = KEY_COUNT,
 ): (AttentionItem | null)[] {
-  const start = clampOffset(offset, sortedItems.length);
-  return Array.from({ length: KEY_COUNT }, (_, i) => sortedItems[start + i] ?? null);
+  const start = clampOffset(offset, sortedItems.length, keyCount);
+  return Array.from({ length: keyCount }, (_, i) => sortedItems[start + i] ?? null);
 }
 
 /**
@@ -107,8 +99,8 @@ export function assignSlots(
  * exist. Offsets that would scroll past the end snap back to the last full-ish
  * page; negative offsets snap to 0.
  */
-export function clampOffset(offset: number, total: number): number {
-  if (total <= KEY_COUNT) return 0;
+export function clampOffset(offset: number, total: number, keyCount = KEY_COUNT): number {
+  if (total <= keyCount) return 0;
   const max = total - 1; // allow scrolling until the last item sits in slot 0
   if (offset < 0) return 0;
   if (offset > max) return max;
