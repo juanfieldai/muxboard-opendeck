@@ -15,7 +15,7 @@ host uses Stream Deck’s managed Node 20 runtime. See the [README](../README.md
         └── TCP ──► codexbar serve (LCD usage)
 
 src/
-  opendeck.ts        native WebSocket host: 15-key Orca queue, N1 buttons/knob
+  opendeck.ts        native WebSocket host: selected agents/actions, N1 controls
   plugin.ts          original macOS entry: connect, load config, start services
   runtime.ts         shared store/services/focus-backends + macOS foregrounding
   config.ts          defaults + defensive resolveConfig()
@@ -23,10 +23,10 @@ src/
     types.ts
     cmux/            client (CLI wrapper), normalize (agent/reason), sort,
                      eventStatus (live state from the event stream + CPU)
-    orca/            worktree snapshot normalization + terminal focus
+    orca/            per-pane inventory, focus and targeted workspace actions
     herdr/           snapshots, terminal identity, existing-host mapping + focus
     codexbar/        client (HTTP), normalize (dual-shape + error + cost)
-    render/          palette, format, keyRender (SVG), lcdRender (SVG)
+    render/          palette, format, keyRender, lcdRender, neoPanel (SVG)
     services/        store, cmux/orca/herdr/codexbar polls, cmuxEvents (event stream)
   actions/           attentionKey (8 keys), dialStrip (4 dials): thin SDK glue
 scripts/             preview / validate / gen-icons / install-profile / dev.sh
@@ -43,12 +43,24 @@ agents without live terminals disappear. Live agents without lifecycle data
 (including floating terminals) show unknown state, not fabricated activity.
 Focus refreshes the terminal inventory and switches the exact stored handle;
 a closed or replaced pane produces an error instead of focusing a neighbor.
+The OpenDeck host retains selection by entity identity across polls. Key-down
+captures the item/action before key-up, and opening Actions retains its exact
+target. Workspace actions revalidate handle + worktree + pane before creating
+a terminal or opening changed-file diffs. Installed launchers are resolved to
+absolute executable paths and shell-quoted because Orca startup commands are
+shell strings. Native Button A and Button B are Keypad positions 15 and 16
+(row 5, columns 0 and 1); the sole knob is Encoder 0. All three use Agent
+Controls but are screenless. Agent LCD on Infobar 0 alone renders a full
+450×85 SVG banner. The full-LCD N1 driver fork rasterizes it as one JPEG and
+sends LCD wire index 16; no encoder crop API or LCD aliases remain.
 
 ## The device profiles
 
 For OpenDeck, `node scripts/opendeck-profile.mjs n1-DEVICE_SERIAL` creates a
-new Muxboard profile with 15 keys and three encoder positions. Close OpenDeck
-first, then restart and select it. Existing profiles are never overwritten.
+new Muxboard profile with 17 keys (15 Agent Slot + two Agent Controls), one
+Agent Controls slider, and one Agent LCD infobar. Close OpenDeck first, then
+restart and select it. Existing profiles are never overwritten; migration
+from the old three-encoder layout is documented in the README.
 The original macOS installer below remains separate from the OpenDeck host.
 
 `scripts/install-profile.mjs` writes a Muxboard profile straight into the Stream
