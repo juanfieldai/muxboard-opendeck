@@ -1,22 +1,31 @@
 import WebSocket, { type RawData } from "ws";
 import { DEFAULT_CONFIG, resolveConfig, type MuxboardConfig } from "./config.js";
-import { assignSlots, itemRank } from "./core/cmux/sort.js";
-import { OrcaClient } from "./core/orca/client.js";
+import { assignSlots, isDecision, itemRank } from "./core/cmux/sort.js";
+import { getAvailableDeckActions, OrcaClient, type OrcaDeckAction } from "./core/orca/client.js";
+import { renderNeoPanel } from "./core/render/neoPanel.js";
+import { escapeXml, fitText } from "./core/render/format.js";
 import { renderEmptyKey, renderFilteredEmpty, renderKey, renderOverflow, renderPagerHome, renderSourceOffline } from "./core/render/keyRender.js";
 import { type Logger, message as errorMessage } from "./core/services/logger.js";
 import { OrcaService } from "./core/services/orcaService.js";
 import { Store } from "./core/services/store.js";
-import type { AppState, AttentionItem } from "./core/types.js";
+import { attentionEntityKey, type AppState, type AttentionItem } from "./core/types.js";
 
 const AGENT_ACTION = "com.juanfieldai.muxboard.agent";
 const CONTROLS_ACTION = "com.juanfieldai.muxboard.controls";
+const LCD_ACTION = "com.juanfieldai.muxboard.lcd";
 const KEY_COUNT = 15;
 const LONG_PRESS_MS = 600;
 const SNOOZE_MS = 5 * 60 * 1000;
 
 type JsonObject = Record<string, unknown>;
 type Coordinates = { column: number; row: number };
-type KeyPress = { kind: "item"; item: AttentionItem } | { kind: "pager" } | { kind: "empty" };
+type Page = "agents" | "actions";
+type ActionId = "focus" | "refresh" | "back" | OrcaDeckAction;
+type KeyPress =
+  | { kind: "item"; item: AttentionItem }
+  | { kind: "action"; action: ActionId; target: AttentionItem | null }
+  | { kind: "pager" }
+  | { kind: "empty" };
 type Timer = NodeJS.Timeout;
 
 interface LaunchOptions {
@@ -26,7 +35,11 @@ interface LaunchOptions {
 }
 
 interface KeySurface { coordinates: Coordinates }
-interface EncoderSurface { index: number }
+type AuxiliaryControl = "a" | "b";
+interface DeckAction {
+  id: ActionId;
+  label: string;
+}
 
 function asObject(value: unknown): JsonObject | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
@@ -63,17 +76,6 @@ function overflowAccent(items: AttentionItem[]): string {
   return colors[Math.min(...items.map(itemRank))] ?? "#7d8794";
 }
 
-function encoderSvg(index: number, state: Readonly<AppState>): string {
-  const labels = [
-    ["AGENTS", state.filter.toUpperCase()],
-    ["DECISIONS", state.view === "decisions" ? "ON" : "OFF"],
-    ["SCROLL", "↕"],
-  ] as const;
-  const [label, value] = labels[index] ?? labels[0];
-  const accent = index === 1 && state.view === "decisions" ? "#38bdf8" : "#7b86c4";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" rx="18" fill="#0d0e10"/><rect x="3" y="3" width="138" height="138" rx="16" fill="none" stroke="#2c3038" stroke-width="2"/><g font-family="-apple-system, Helvetica, Arial, sans-serif" text-anchor="middle"><text x="72" y="52" font-size="14" font-weight="800" letter-spacing="1" fill="#9aa0aa">${label}</text><text x="72" y="101" font-size="31" font-weight="800" fill="${accent}">${value}</text></g></svg>`;
-}
-
 function defaultLogger(): Logger {
   return {
     info: (line) => console.info(`[muxboard] ${line}`),
@@ -82,20 +84,63 @@ function defaultLogger(): Logger {
   };
 }
 
+/** A compact, stable identity for selection across replacement polls. */
+function itemKey(item: AttentionItem): string {
+  return attentionEntityKey(item) || item.id;
+}
+
+function itemName(item: AttentionItem): string {
+  return item.title || item.repo || item.workspaceId || item.id;
+}
+
+function itemState(item: AttentionItem): string {
+  if (item.reason === "unknown") return "UNKNOWN";
+  if (item.reason === "finished") return "DONE";
+  if (item.reason === "failed") return "FAILED";
+  if (item.reason === "blocked") return "BLOCKED";
+  if (item.needsInput || isDecision(item)) return "NEEDS";
+  return item.activity === "working" ? "RUNNING" : "IDLE";
+}
+
+function markSelected(svg: string): string {
+  const end = svg.lastIndexOf("</svg>");
+  if (end < 0) return svg;
+  return `${svg.slice(0, end)}<rect x="3" y="3" width="138" height="138" fill="none" stroke="#ffffff" stroke-width="4"/></svg>`;
+}
+
+function actionTile(action: DeckAction, selected: boolean): string {
+  const fit = fitText(action.label, 116, 68, 12, 23);
+  const lineHeight = fit.fontSize * 1.14;
+  const start = 64 - (fit.lines.length * lineHeight) / 2 + fit.fontSize * 0.8;
+  const label = fit.lines.map((line, index) => `<text x="72" y="${(start + index * lineHeight).toFixed(1)}" font-size="${fit.fontSize}" font-weight="800" text-anchor="middle" fill="#f1f4f8">${escapeXml(line)}</text>`).join("");
+  const stroke = selected ? "#ffffff" : "#303641";
+  const width = selected ? 5 : 2;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144"><rect width="144" height="144" fill="#111318"/><rect x="3" y="3" width="138" height="138" fill="none" stroke="${stroke}" stroke-width="${width}"/><g font-family="-apple-system, Helvetica, Arial, sans-serif">${label}</g></svg>`;
+}
+
 export class OpenDeckHost {
   private readonly store = new Store([], () => Date.now(), KEY_COUNT);
   private readonly keySurfaces = new Map<string, KeySurface>();
-  private readonly encoderSurfaces = new Map<string, EncoderSurface>();
+  private readonly auxiliaryControls = new Map<string, AuxiliaryControl>();
+  private readonly encoderSurfaces = new Set<string>();
+  private readonly lcdSurfaces = new Set<string>();
   private readonly keyPresses = new Map<string, KeyPress>();
   private readonly holdTimers = new Map<string, Timer>();
   private readonly held = new Set<string>();
   private readonly imageCache = new Map<string, string>();
+  private readonly availableActions = new Set(getAvailableDeckActions());
   private socket: WebSocket | null = null;
   private service: OrcaService | null = null;
   private orca: OrcaClient | null = null;
   private config: MuxboardConfig = DEFAULT_CONFIG;
   private registered = false;
   private cleanedUp = false;
+  private rendering = false;
+  private page: Page = "agents";
+  private selectedKey: string | null = null;
+  /** Exact object captured when Actions is opened; never replaced by a poll. */
+  private actionTarget: AttentionItem | null = null;
+  private selectedAction: ActionId = "focus";
 
   constructor(private readonly launch: LaunchOptions, private readonly log: Logger = defaultLogger()) {
     this.store.subscribe(() => this.renderAll());
@@ -148,7 +193,7 @@ export class OpenDeckHost {
       case "keyUp": void this.keyUp(wire); break;
       case "dialRotate": this.dialRotate(wire); break;
       case "dialDown": this.dialDown(wire); break;
-      case "dialUp": this.dialUp(wire); break;
+      case "dialUp": break;
       case "didReceiveGlobalSettings": this.globalSettings(wire); break;
       default: break;
     }
@@ -158,12 +203,20 @@ export class OpenDeckHost {
     const context = stringValue(wire.context);
     const action = actionUuid(wire);
     if (!context || !action) return;
+    const controller = asObject(wire.payload)?.controller ?? wire.controller;
     if (action === AGENT_ACTION) {
       this.keySurfaces.set(context, { coordinates: coordinatesFrom(wire) });
       this.renderKey(context);
     } else if (action === CONTROLS_ACTION) {
-      this.encoderSurfaces.set(context, { index: this.encoderIndex(coordinatesFrom(wire)) });
-      this.renderEncoder(context);
+      const coordinates = coordinatesFrom(wire);
+      if (controller === "Keypad" && coordinates.row === 5 && coordinates.column < 2) {
+        this.auxiliaryControls.set(context, coordinates.column === 0 ? "a" : "b");
+      } else if (controller === "Encoder" && coordinates.column === 0) {
+        this.encoderSurfaces.add(context);
+      }
+    } else if (action === LCD_ACTION && controller === "Infobar" && coordinatesFrom(wire).column === 0) {
+      this.lcdSurfaces.add(context);
+      this.renderLcd(context);
     }
   }
 
@@ -172,6 +225,8 @@ export class OpenDeckHost {
     if (!context) return;
     this.keySurfaces.delete(context);
     this.encoderSurfaces.delete(context);
+    this.auxiliaryControls.delete(context);
+    this.lcdSurfaces.delete(context);
     this.keyPresses.delete(context);
     this.releaseHold(context);
     this.imageCache.delete(context);
@@ -179,8 +234,19 @@ export class OpenDeckHost {
 
   private keyDown(wire: JsonObject): void {
     const context = stringValue(wire.context);
-    const surface = context ? this.keySurfaces.get(context) : undefined;
-    if (!context || !surface) return;
+    if (!context) return;
+    const auxiliary = this.auxiliaryControls.get(context);
+    if (auxiliary) {
+      this.releaseHold(context);
+      if (auxiliary === "a") void this.focusNextDecision(context);
+      else {
+        this.keyPresses.set(context, { kind: "empty" });
+        this.armPageHold(context);
+      }
+      return;
+    }
+    const surface = this.keySurfaces.get(context);
+    if (!surface) return;
     this.releaseHold(context);
     const slot = this.slot(surface.coordinates);
     const state = this.store.getState();
@@ -188,18 +254,47 @@ export class OpenDeckHost {
       this.keyPresses.set(context, { kind: "empty" });
       return;
     }
+
+    if (this.page === "actions") {
+      const action = this.actionEntries()[slot];
+      if (!action) {
+        this.keyPresses.set(context, { kind: "empty" });
+        return;
+      }
+      // Capture both at keyDown. A later poll or page navigation must never
+      // redirect a key-up into a different command or terminal. The pressed
+      // action also becomes the selected knob action immediately.
+      this.selectedAction = action.id;
+      this.keyPresses.set(context, { kind: "action", action: action.id, target: this.actionTarget });
+      this.renderAll();
+      this.armActionHold(context);
+      return;
+    }
+
     if (this.isPager(slot, state)) {
       this.keyPresses.set(context, { kind: "pager" });
       return;
     }
     const item = assignSlots(state.items, state.offset, KEY_COUNT)[slot] ?? null;
     this.keyPresses.set(context, item ? { kind: "item", item } : { kind: "empty" });
-    if (item) this.armItemHold(context, item);
+    if (item) {
+      // A direct key press is also a selection change. Keep the selected
+      // entity stable when Button B opens the worktree action page next.
+      this.selectedKey = itemKey(item);
+      this.renderAll();
+      this.armItemHold(context, item);
+    }
   }
 
   private async keyUp(wire: JsonObject): Promise<void> {
     const context = stringValue(wire.context);
     if (!context) return;
+    const auxiliary = this.auxiliaryControls.get(context);
+    if (auxiliary) {
+      const pressed = this.keyPresses.delete(context);
+      if (auxiliary === "b" && pressed && !this.releaseHold(context)) this.store.cycleView();
+      return;
+    }
     if (this.releaseHold(context)) {
       this.keyPresses.delete(context);
       return;
@@ -208,9 +303,11 @@ export class OpenDeckHost {
     this.keyPresses.delete(context);
     if (!press) return;
     if (press.kind === "pager") {
-      const state = this.store.getState();
-      if (state.items.length > state.offset + KEY_COUNT - 1) this.store.pageForward();
-      else this.store.resetOffset();
+      this.selectNextPage();
+      return;
+    }
+    if (press.kind === "action") {
+      await this.runAction(press.action, press.target, context);
       return;
     }
     if (press.kind !== "item" || !this.orca) return;
@@ -224,33 +321,19 @@ export class OpenDeckHost {
 
   private dialRotate(wire: JsonObject): void {
     const context = stringValue(wire.context);
-    const surface = context ? this.encoderSurfaces.get(context) : undefined;
-    if (!surface || (surface.index !== 0 && surface.index !== 2)) return;
+    if (!context || !this.encoderSurfaces.has(context)) return;
     const ticks = Math.trunc(numberValue(asObject(wire.payload)?.ticks, 0));
     if (ticks === 0) return;
-    if (surface.index === 0) this.store.cycleFilter(ticks >= 0 ? 1 : -1);
-    else this.store.scrollBy(ticks);
+    if (this.page === "actions") this.moveActionSelection(ticks);
+    else this.moveAgentSelection(ticks);
   }
 
   private dialDown(wire: JsonObject): void {
     const context = stringValue(wire.context);
-    const surface = context ? this.encoderSurfaces.get(context) : undefined;
-    if (!context || !surface) return;
-    this.releaseHold(context);
-    if (surface.index === 0) this.store.cycleFilter(1);
-    else if (surface.index === 1) this.store.cycleView();
-    else if (surface.index === 2) this.armEncoderHold(context);
-  }
-
-  private dialUp(wire: JsonObject): void {
-    const context = stringValue(wire.context);
-    const surface = context ? this.encoderSurfaces.get(context) : undefined;
-    if (!context || !surface || surface.index !== 2) return;
-    if (!this.releaseHold(context)) {
-      if (this.store.getState().view === "decisions") this.store.cycleView();
-      this.store.resetFilters();
-      this.store.resetOffset();
-    }
+    if (!context || !this.encoderSurfaces.has(context)) return;
+    const action: ActionId = this.page === "actions" ? this.selectedAction : "focus";
+    const target = this.page === "actions" ? this.actionTarget : this.selectedItem();
+    void this.runAction(action, target, context);
   }
 
   private globalSettings(wire: JsonObject): void {
@@ -275,9 +358,18 @@ export class OpenDeckHost {
     this.service.start();
     this.log.info(`Orca polling started with ${config.orcaBin}`);
   }
+
   private renderAll(): void {
-    for (const context of this.keySurfaces.keys()) this.renderKey(context);
-    for (const context of this.encoderSurfaces.keys()) this.renderEncoder(context);
+    if (this.rendering) return;
+    this.rendering = true;
+    try {
+      if (this.page === "agents") this.reconcileAgentSelection();
+      else this.reconcileActionSelection();
+      for (const context of this.keySurfaces.keys()) this.renderKey(context);
+      for (const context of this.lcdSurfaces) this.renderLcd(context);
+    } finally {
+      this.rendering = false;
+    }
   }
 
   private renderKey(context: string): void {
@@ -286,6 +378,12 @@ export class OpenDeckHost {
     const slot = this.slot(surface.coordinates);
     if (slot < 0 || slot >= KEY_COUNT) return;
     const state = this.store.getState();
+    if (this.page === "actions") {
+      const action = this.actionEntries()[slot];
+      this.setImage(context, action ? actionTile(action, action.id === this.selectedAction) : renderEmptyKey(slot + 1));
+      return;
+    }
+
     let svg: string;
     if (state.orcaOffline && state.items.length === 0 && slot === 0) {
       svg = renderSourceOffline("orca");
@@ -299,13 +397,33 @@ export class OpenDeckHost {
       svg = item
         ? renderKey(item, { nowMs: Date.now(), slotNumber: state.offset > 0 ? state.offset + slot + 1 : undefined, viewBadge: state.orcaOffline ? "OFF" : state.view === "decisions" ? "DEC" : undefined })
         : renderEmptyKey(slot + 1);
+      if (item && itemKey(item) === this.selectedKey) svg = markSelected(svg);
     }
     this.setImage(context, svg);
   }
 
-  private renderEncoder(context: string): void {
-    const surface = this.encoderSurfaces.get(context);
-    if (surface) this.setImage(context, encoderSvg(surface.index, this.store.getState()));
+  private renderLcd(context: string): void {
+    if (!this.lcdSurfaces.has(context)) return;
+    const state = this.store.getState();
+    const target = this.page === "actions" ? this.actionTarget : this.selectedItem();
+    const action = this.page === "actions" ? this.selectedActionEntry() : undefined;
+    const selectedIndex = target && this.page === "agents"
+      ? state.items.findIndex((item) => itemKey(item) === itemKey(target))
+      : -1;
+    const selectedState = target
+      ? selectedIndex >= 0
+        ? `${selectedIndex + 1}/${state.items.length} ${itemState(target)}`
+        : itemState(target)
+      : undefined;
+    this.setImage(context, renderNeoPanel({
+      page: this.page,
+      view: state.view === "decisions" ? "needs" : "all",
+      count: state.items.length,
+      needsCount: state.items.filter(isDecision).length,
+      selectedName: target ? itemName(target) : undefined,
+      selectedState,
+      actionName: action?.label,
+    }));
   }
 
   private setImage(context: string, svg: string): void {
@@ -333,11 +451,20 @@ export class OpenDeckHost {
     }, LONG_PRESS_MS));
   }
 
-  private armEncoderHold(context: string): void {
+  /** Actions do not have a hold command: a held key is swallowed. */
+  private armActionHold(context: string): void {
     this.holdTimers.set(context, setTimeout(() => {
       this.holdTimers.delete(context);
       this.held.add(context);
-      void this.refresh();
+    }, LONG_PRESS_MS));
+  }
+
+  private armPageHold(context: string): void {
+    this.holdTimers.set(context, setTimeout(() => {
+      this.holdTimers.delete(context);
+      this.held.add(context);
+      this.togglePage();
+      this.send({ event: "showOk", context, payload: {} });
     }, LONG_PRESS_MS));
   }
 
@@ -356,6 +483,167 @@ export class OpenDeckHost {
     catch (err) { this.log.error(`refresh failed: ${errorMessage(err)}`); }
   }
 
+  private async focusNextDecision(context: string): Promise<void> {
+    const items = this.store.getState().items;
+    const decisions = items.filter(isDecision);
+    if (decisions.length === 0) {
+      this.alert(context);
+      return;
+    }
+    if (this.page === "actions") {
+      this.page = "agents";
+      this.actionTarget = null;
+      this.reconcileAgentSelection();
+    }
+    const current = this.selectedKey ? decisions.findIndex((item) => itemKey(item) === this.selectedKey) : -1;
+    const next = decisions[(current + 1 + decisions.length) % decisions.length];
+    this.selectedKey = itemKey(next);
+    this.renderAll();
+    if (!this.orca) return;
+    try {
+      await this.orca.focus(next);
+    } catch (err) {
+      this.log.error(`focus failed: ${errorMessage(err)}`);
+      this.alert(context);
+    }
+  }
+
+  private async runAction(action: ActionId, target: AttentionItem | null, context: string): Promise<void> {
+    if (action === "back") {
+      this.page = "agents";
+      this.actionTarget = null;
+      this.selectedAction = "focus";
+      this.renderAll();
+      return;
+    }
+    if (action === "refresh") {
+      await this.refresh();
+      return;
+    }
+    if (!target || !this.orca) {
+      this.alert(context);
+      return;
+    }
+    try {
+      if (action === "focus") await this.orca.focus(target);
+      else {
+        if (!target.workspaceId.includes("::")) {
+          this.alert(context);
+          return;
+        }
+        await this.orca.runDeckAction(action, target);
+      }
+    } catch (err) {
+      this.log.error(`action ${action} failed: ${errorMessage(err)}`);
+      this.alert(context);
+    }
+  }
+
+  private togglePage(): void {
+    if (this.page === "agents") {
+      this.actionTarget = this.selectedItem();
+      this.page = "actions";
+      this.selectedAction = this.actionEntries().some((entry) => entry.id === "focus") ? "focus" : this.actionEntries()[0]?.id ?? "back";
+    } else {
+      this.page = "agents";
+      this.actionTarget = null;
+      this.selectedAction = "focus";
+    }
+    this.renderAll();
+  }
+
+  private moveAgentSelection(delta: number): void {
+    const items = this.store.getState().items;
+    if (items.length === 0) return;
+    this.reconcileAgentSelection();
+    const index = Math.max(0, items.findIndex((item) => itemKey(item) === this.selectedKey));
+    const next = ((index + delta) % items.length + items.length) % items.length;
+    this.selectedKey = itemKey(items[next]);
+    this.renderAll();
+  }
+
+  private moveActionSelection(delta: number): void {
+    const entries = this.actionEntries();
+    if (entries.length === 0) return;
+    const index = Math.max(0, entries.findIndex((entry) => entry.id === this.selectedAction));
+    this.selectedAction = entries[((index + delta) % entries.length + entries.length) % entries.length].id;
+    this.renderAll();
+  }
+
+  /**
+   * Overflow remains visible as a pager tile, but paging moves the stable
+   * selection as well. That keeps the selected key on-screen instead of
+   * letting reconciliation immediately snap a page change back into place.
+   */
+  private selectNextPage(): void {
+    const state = this.store.getState();
+    const items = state.items;
+    if (items.length <= KEY_COUNT) return;
+    const visible = KEY_COUNT - 1;
+    const selected = this.selectedKey ? items.findIndex((item) => itemKey(item) === this.selectedKey) : -1;
+    const current = selected >= 0 ? selected : state.offset;
+    const next = current + visible < items.length ? current + visible : 0;
+    this.selectedKey = itemKey(items[next]);
+    this.renderAll();
+  }
+
+  private selectedItem(): AttentionItem | null {
+    const items = this.store.getState().items;
+    if (this.selectedKey) {
+      const selected = items.find((item) => itemKey(item) === this.selectedKey);
+      if (selected) return selected;
+    }
+    return items[0] ?? null;
+  }
+
+  private reconcileAgentSelection(): void {
+    const items = this.store.getState().items;
+    if (items.length === 0) {
+      this.selectedKey = null;
+      return;
+    }
+    let index = this.selectedKey ? items.findIndex((item) => itemKey(item) === this.selectedKey) : -1;
+    if (index < 0) {
+      index = Math.min(this.store.getState().offset, items.length - 1);
+      this.selectedKey = itemKey(items[index]);
+    }
+    this.keepSelectionVisible(index);
+  }
+
+  private keepSelectionVisible(index: number): void {
+    const state = this.store.getState();
+    const visible = state.items.length > KEY_COUNT ? KEY_COUNT - 1 : KEY_COUNT;
+    const maxOffset = Math.max(0, state.items.length - 1);
+    let offset = state.offset;
+    if (index < offset) offset = index;
+    else if (index >= offset + visible) offset = index - visible + 1;
+    offset = Math.max(0, Math.min(maxOffset, offset));
+    if (offset !== state.offset) this.store.scrollBy(offset - state.offset);
+  }
+
+  private reconcileActionSelection(): void {
+    const entries = this.actionEntries();
+    if (entries.length > 0 && !entries.some((entry) => entry.id === this.selectedAction)) this.selectedAction = entries[0].id;
+  }
+
+  private actionEntries(): DeckAction[] {
+    const target = this.actionTarget;
+    const entries: DeckAction[] = [];
+    if (target) entries.push({ id: "focus", label: "Focus selected" });
+    const available = this.availableActions;
+    if (target && target.workspaceId.includes("::")) {
+      for (const id of ["shell", "omp", "claude", "opencode", "changes"] as OrcaDeckAction[]) {
+        if (available.has(id)) entries.push({ id, label: id === "changes" ? "Show changes" : id === "opencode" ? "OpenCode" : id.toUpperCase() });
+      }
+    }
+    entries.push({ id: "refresh", label: "Refresh" }, { id: "back", label: "Back" });
+    return entries;
+  }
+
+  private selectedActionEntry(): DeckAction | undefined {
+    return this.actionEntries().find((entry) => entry.id === this.selectedAction);
+  }
+
   private cleanup(): void {
     if (this.cleanedUp) return;
     this.cleanedUp = true;
@@ -372,12 +660,8 @@ export class OpenDeckHost {
     return coordinates.row * 3 + coordinates.column;
   }
 
-  private encoderIndex(coordinates: Coordinates): number {
-    return Math.max(0, Math.min(2, coordinates.column));
-  }
-
   private isPager(slot: number, state: Readonly<AppState>): boolean {
-    return slot === KEY_COUNT - 1 && state.items.length > KEY_COUNT;
+    return this.page === "agents" && slot === KEY_COUNT - 1 && state.items.length > KEY_COUNT;
   }
 }
 

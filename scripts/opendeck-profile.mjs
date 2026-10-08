@@ -14,9 +14,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = JSON.parse(await readFile(join(root, plugin, "manifest.json"), "utf8"));
 const profileDir = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "opendeck", "profiles", device);
 
-function instance(controller, position) {
-  const source = manifest.Actions.find(action => action.Controllers.includes(controller));
-  if (!source) throw new Error(`Manifest has no ${controller} action`);
+function instance(controller, position, uuid) {
+  const source = manifest.Actions.find(action => action.UUID === uuid && action.Controllers.includes(controller));
+  if (!source) throw new Error(`Manifest has no ${controller} action ${uuid}`);
   const action = structuredClone(source);
   action.plugin = plugin;
   action.Icon = `plugins/${plugin}/${source.Icon}.png`;
@@ -35,8 +35,8 @@ function instance(controller, position) {
 await mkdir(profileDir, { recursive: true });
 const path = join(profileDir, "Muxboard.json");
 await writeFile(path, JSON.stringify({
-  keys: Array.from({ length: 15 }, (_, position) => instance("Keypad", position)),
-  sliders: Array.from({ length: 3 }, (_, position) => instance("Encoder", position)),
-  infobars: [],
+  keys: Array.from({ length: 17 }, (_, position) => instance("Keypad", position, position < 15 ? "com.juanfieldai.muxboard.agent" : "com.juanfieldai.muxboard.controls")),
+  sliders: [instance("Encoder", 0, "com.juanfieldai.muxboard.controls")],
+  infobars: [instance("Infobar", 0, "com.juanfieldai.muxboard.lcd")],
 }, null, 2) + "\n", { flag: "wx" });
 console.log(`Created ${path}\nStart OpenDeck and select the Muxboard profile. Existing profiles were left unchanged.`);

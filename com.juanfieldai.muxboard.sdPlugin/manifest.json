@@ -18,7 +18,7 @@
       "Name": "Agent Slot",
       "UUID": "com.juanfieldai.muxboard.agent",
       "Icon": "imgs/actions/attention/icon",
-      "Tooltip": "Shows Orca agent worktrees. Press to focus; hold to snooze locally. OFF marks stale cached data while Orca is unavailable.",
+      "Tooltip": "Shows Orca agents or workspace actions. Press to focus or run; hold an agent key to snooze locally. OFF marks cached data.",
       "Controllers": [
         "Keypad"
       ],
@@ -34,8 +34,9 @@
       "Name": "Agent Controls",
       "UUID": "com.juanfieldai.muxboard.controls",
       "Icon": "imgs/actions/dial/icon",
-      "Tooltip": "Button A cycles agents; Button B toggles Decisions; rotate the knob to scroll and press it to reset filters.",
+      "Tooltip": "Turn the knob to select; press to focus or run. Button A opens the next agent needing attention. Button B toggles All/Needs; hold it for Actions.",
       "Controllers": [
+        "Keypad",
         "Encoder"
       ],
       "States": [
@@ -48,11 +49,27 @@
       "Encoder": {
         "Icon": "imgs/actions/dial/icon",
         "TriggerDescription": {
-          "Rotate": "Adjust agent filter or scroll",
-          "Push": "Toggle Decisions or reset filters",
-          "Touch": "Reset filters"
+          "Rotate": "Select agent or action",
+          "Push": "Focus selected agent or run action",
+          "Touch": "No touch action"
         }
       }
+    },
+    {
+      "Name": "Agent LCD",
+      "UUID": "com.juanfieldai.muxboard.lcd",
+      "Icon": "imgs/actions/dial/icon",
+      "Tooltip": "Full-width status banner for the selected agent or workspace action.",
+      "Controllers": [
+        "Infobar"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/dial/key",
+          "TitleAlignment": "middle",
+          "ShowTitle": false
+        }
+      ]
     }
   ],
   "OS": [
