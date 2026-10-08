@@ -2,6 +2,7 @@ import WebSocket, { type RawData } from "ws";
 import { DEFAULT_CONFIG, resolveConfig, type MuxboardConfig } from "./config.js";
 import { assignSlots, isDecision, itemRank } from "./core/cmux/sort.js";
 import { getAvailableDeckActions, OrcaClient, type OrcaDeckAction } from "./core/orca/client.js";
+import { defaultStripSocketPath, N1StripClient } from "./core/n1Strip.js";
 import { renderNeoPanel } from "./core/render/neoPanel.js";
 import { escapeXml, fitText } from "./core/render/format.js";
 import { renderEmptyKey, renderFilteredEmpty, renderKey, renderOverflow, renderPagerHome, renderSourceOffline } from "./core/render/keyRender.js";
@@ -123,7 +124,8 @@ export class OpenDeckHost {
   private readonly keySurfaces = new Map<string, KeySurface>();
   private readonly auxiliaryControls = new Map<string, AuxiliaryControl>();
   private readonly encoderSurfaces = new Set<string>();
-  private readonly lcdSurfaces = new Set<string>();
+  /** LCD action contexts and the device each one is on. */
+  private readonly lcdSurfaces = new Map<string, string | null>();
   private readonly keyPresses = new Map<string, KeyPress>();
   private readonly holdTimers = new Map<string, Timer>();
   private readonly held = new Set<string>();
@@ -142,7 +144,10 @@ export class OpenDeckHost {
   private actionTarget: AttentionItem | null = null;
   private selectedAction: ActionId = "focus";
 
+  private readonly strip: N1StripClient;
+
   constructor(private readonly launch: LaunchOptions, private readonly log: Logger = defaultLogger()) {
+    this.strip = new N1StripClient(defaultStripSocketPath(), log);
     this.store.subscribe(() => this.renderAll());
   }
 
@@ -215,7 +220,7 @@ export class OpenDeckHost {
         this.encoderSurfaces.add(context);
       }
     } else if (action === LCD_ACTION && controller === "Infobar" && coordinatesFrom(wire).column === 0) {
-      this.lcdSurfaces.add(context);
+      this.lcdSurfaces.set(context, stringValue(wire.device));
       this.renderLcd(context);
     }
   }
@@ -226,6 +231,8 @@ export class OpenDeckHost {
     this.keySurfaces.delete(context);
     this.encoderSurfaces.delete(context);
     this.auxiliaryControls.delete(context);
+    const lcdDevice = this.lcdSurfaces.get(context);
+    if (lcdDevice) this.strip.release(lcdDevice);
     this.lcdSurfaces.delete(context);
     this.keyPresses.delete(context);
     this.releaseHold(context);
@@ -366,7 +373,7 @@ export class OpenDeckHost {
       if (this.page === "agents") this.reconcileAgentSelection();
       else this.reconcileActionSelection();
       for (const context of this.keySurfaces.keys()) this.renderKey(context);
-      for (const context of this.lcdSurfaces) this.renderLcd(context);
+      for (const context of this.lcdSurfaces.keys()) this.renderLcd(context);
     } finally {
       this.rendering = false;
     }
@@ -415,7 +422,7 @@ export class OpenDeckHost {
         ? `${selectedIndex + 1}/${state.items.length} ${itemState(target)}`
         : itemState(target)
       : undefined;
-    this.setImage(context, renderNeoPanel({
+    const svg = renderNeoPanel({
       page: this.page,
       view: state.view === "decisions" ? "needs" : "all",
       count: state.items.length,
@@ -423,7 +430,11 @@ export class OpenDeckHost {
       selectedName: target ? itemName(target) : undefined,
       selectedState,
       actionName: action?.label,
-    }));
+    });
+    // OpenDeck's copy keeps the editor preview and is the fallback when no N1 strip socket exists.
+    this.setImage(context, svg);
+    const device = this.lcdSurfaces.get(context);
+    if (device) this.strip.draw(device, svg);
   }
 
   private setImage(context: string, svg: string): void {
@@ -654,6 +665,7 @@ export class OpenDeckHost {
     this.holdTimers.clear();
     this.held.clear();
     this.keyPresses.clear();
+    this.strip.close();
   }
 
   private slot(coordinates: Coordinates): number {

@@ -52,9 +52,9 @@ An overflowing queue uses 14 agent slots and a pager. Without overflow, all 15 k
 
 **Typical workflow:** press an agent key, hold Button B, then press **Shell**, **OMP**, **Claude**, **OpenCode**, or **Show changes**. New terminals open in that agent's workspace—not whichever workspace happens to be active in Orca. **Focus selected**, **Refresh**, and **Back** are also available. Only installed agent launchers appear; floating terminals have no workspace, so their page offers focus/refresh/back only. No action sends prompts, approves permissions, interrupts, or closes an existing agent.
 
-The top LCD is **one continuous 450×85 status banner**, showing the selected agent/task, its state and queue position, and the knob's current action. The Actions page keeps its target visible. Only **Agent LCD** on **Infobar 0** renders this surface; Button A, Button B, and the knob are screenless inputs and never send LCD images. The driver sends one full-size JPEG at the device's LCD wire index 16, without encoder-region crops.
+The top LCD is **one continuous 450×85 status banner**, showing the selected agent/task, its state and queue position, and the knob's current action. The Actions page keeps its target visible. Only **Agent LCD** on **Infobar 0** renders this surface; Button A, Button B, and the knob are screenless inputs and never send LCD images.
 
-LCD content is clipped to columns 10–439: the first and last ten columns stay black. OpenDeck 2.14.0 currently rasterizes its native Infobar at 248×58 before the driver enlarges it to 450×85, so automatic dashboard text loses detail. Rendering the vector banner directly at 450×85 avoids that reduction, but a direct comparison upload is not a fix for OpenDeck's automatic rendering pipeline.
+LCD content is clipped to columns 10–439: the first and last ten columns stay black. OpenDeck 2.14.0 rasterizes its Infobar at 248×58, which cannot be sharp once enlarged to 450×85, so Muxboard **draws the banner directly** through the N1 driver's strip socket (`$XDG_RUNTIME_DIR/opendeck-mirabox-n1/strip.sock`). The driver renders the SVG at the native 450×85 on unmodified OpenDeck. Muxboard still sends the same SVG through OpenDeck's `setImage`, for the editor preview and as the fallback: if the driver has no socket or Muxboard stops, the driver shows OpenDeck's Infobar image again.
 
 ## State and focus
 
@@ -95,9 +95,9 @@ This native package uses a WebSocket client and the existing Muxboard queue/rend
 
 Added a native Linux/OpenDeck host and N1 profile generator, device-sized pagination, OpenCode identity/filtering, exact per-agent Orca discovery/focus, stable knob selection, and a workspace Actions page. CI builds both bundles and packages the native archive; release workflows can attach both host packages.
 
-The native-Infobar migration passed TypeScript checking, all 270 Muxboard tests, and the OpenDeck build. The hardware fork passed eight Rust tests, example checks, and its release build.
+The native-Infobar migration passed TypeScript checking, all Muxboard tests (271, including the strip-socket client), and the OpenDeck build. The hardware fork passed its Rust tests, example checks, and release build.
 
-Installed integration was exercised on Linux with OpenDeck 2.14.0 and MSD NEO `0b00:1004`: the editor showed one encoder, two auxiliary touchpoints, and one Agent LCD Infobar; driver logs recorded real OpenDeck JPEG callbacks resized to 450×85 at wire index 16. The 450×85 direct-device calibration was physically confirmed by the user. Native control behavior has regression coverage; physical button operation after migration and the final dashboard pixels have not been independently observed through a camera or framebuffer readback.
+Installed integration was exercised on Linux with unmodified OpenDeck 2.14.0 and MSD NEO `0b00:1004`: the editor showed one encoder, two auxiliary touchpoints, and one Agent LCD Infobar; driver logs recorded Muxboard drawing the banner directly through the strip socket at 450×85 at wire index 16, and, when Muxboard was stopped, the driver falling back to OpenDeck's 248×58 Infobar image. The 450×85 direct-device calibration was physically confirmed by the user. Native control behavior has regression coverage; physical button operation after migration and the final dashboard pixels have not been independently observed through a camera or framebuffer readback.
 
 ## License
 

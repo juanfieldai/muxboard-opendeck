@@ -51,8 +51,10 @@ absolute executable paths and shell-quoted because Orca startup commands are
 shell strings. Native Button A and Button B are Keypad positions 15 and 16
 (row 5, columns 0 and 1); the sole knob is Encoder 0. All three use Agent
 Controls but are screenless. Agent LCD on Infobar 0 alone renders a full
-450×85 SVG banner. The full-LCD N1 driver fork rasterizes it as one JPEG and
-sends LCD wire index 16; no encoder crop API or LCD aliases remain.
+450×85 SVG banner. `core/n1Strip.ts` sends it straight to the N1 driver's
+strip socket, which renders the SVG at native resolution and sends one JPEG to
+LCD wire index 16; the same SVG also goes through `setImage` for the editor
+preview and as the fallback when the socket is absent.
 
 ## The device profiles
 
