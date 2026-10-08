@@ -54,7 +54,7 @@ An overflowing queue uses 14 agent slots and a pager. Without overflow, all 15 k
 
 The top LCD is **one continuous 450×85 status banner**, showing the selected agent/task, its state and queue position, and the knob's current action. The Actions page keeps its target visible. Only **Agent LCD** on **Infobar 0** renders this surface; Button A, Button B, and the knob are screenless inputs and never send LCD images.
 
-LCD content is clipped to columns 10–439: the first and last ten columns stay black. OpenDeck 2.14.0 rasterizes its Infobar at 248×58, which cannot be sharp once enlarged to 450×85, so Muxboard **draws the banner directly** through the N1 driver's strip socket (`$XDG_RUNTIME_DIR/opendeck-mirabox-n1/strip.sock`). The driver renders the SVG at the native 450×85 on unmodified OpenDeck. Muxboard still sends the same SVG through OpenDeck's `setImage`, for the editor preview and as the fallback: if the driver has no socket or Muxboard stops, the driver shows OpenDeck's Infobar image again.
+LCD content is clipped to columns 5–444: the first and last five columns stay black. OpenDeck 2.14.0 rasterizes its Infobar at 248×58, which cannot be sharp once enlarged to 450×85, so Muxboard **draws the banner directly** through the N1 driver's strip socket (`$XDG_RUNTIME_DIR/opendeck-mirabox-n1/strip.sock`). The driver renders the SVG at the native 450×85 on unmodified OpenDeck. Muxboard still sends the same SVG through OpenDeck's `setImage`, for the editor preview and as the fallback: if the driver has no socket or Muxboard stops, the driver shows OpenDeck's Infobar image again.
 
 ## State and focus
 
