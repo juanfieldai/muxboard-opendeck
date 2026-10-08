@@ -50,9 +50,9 @@ a terminal or opening changed-file diffs. Installed launchers are resolved to
 absolute executable paths and shell-quoted because Orca startup commands are
 shell strings. Native Button A and Button B are Keypad positions 15 and 16
 (row 5, columns 0 and 1); the sole knob is Encoder 0. All three use Agent
-Controls but are screenless. Agent LCD on Infobar 0 alone renders a 430×85
-SVG banner, the drawable area the N1 driver leaves between its 10-column black
-side margins. `core/n1Strip.ts` sends it straight to the N1 driver's strip
+Controls but are screenless. Agent LCD on Infobar 0 alone renders a 390×85
+SVG banner, the drawable area the N1 driver leaves between its black side
+margins (20 bezel-hidden plus 10 visible columns each). `core/n1Strip.ts` sends it straight to the N1 driver's strip
 socket, which renders the SVG at native resolution and sends one JPEG to LCD
 wire index 16; the same SVG also goes through `setImage` for the editor preview
 and as the fallback when the socket is absent.

@@ -1,7 +1,7 @@
 import { escapeXml, fitText } from "./format.js";
 
-/** Drawable N1 strip area; the driver adds 10-column black margins on each side. */
-const PANEL_WIDTH = 430;
+/** Drawable N1 strip area, inside the driver's black side margins (20 bezel-hidden + 10 visible columns). */
+const PANEL_WIDTH = 390;
 const PANEL_HEIGHT = 85;
 
 export interface NeoPanelState {
@@ -14,7 +14,7 @@ export interface NeoPanelState {
   actionName?: string;
 }
 
-/** Render the Infobar banner for the N1 strip's 430×85 drawable area. */
+/** Render the Infobar banner for the N1 strip's 390×85 drawable area. */
 export function renderNeoPanel(state: NeoPanelState): string {
   const page = state.page === "actions" ? "ACTIONS" : "AGENTS";
   const view = state.view === "needs" ? `NEEDS ${state.needsCount}` : `ALL ${state.count}`;
