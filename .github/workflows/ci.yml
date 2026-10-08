@@ -12,10 +12,8 @@ permissions:
 
 jobs:
   check:
-    # ubuntu, not macOS: unlike Release there is no `streamdeck pack` step
-    # here, and typecheck/test/build are platform-independent (rollup bundle,
-    # pure-logic tests). The plugin's runtime is mac-only, but nothing in
-    # these gates touches it.
+    # Both host bundles build on Linux; only the upstream macOS installer
+    # needs Elgato tooling.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -35,3 +33,4 @@ jobs:
 
       # bin/ is gitignored, so verify the bundle actually builds.
       - run: npm run build
+      - run: npm run pack:opendeck

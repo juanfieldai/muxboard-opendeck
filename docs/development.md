@@ -2,9 +2,9 @@
 
 [Back to the README](../README.md)
 
-Use Node.js ≥ 22 for development and tests (CI uses Node 22). The packaged
-plugin runs on the Stream Deck app's managed Node 20 runtime. Start with
-[Build from source](../README.md#build-from-source).
+Use Node.js ≥ 22 for development and tests (CI uses Node 22). OpenDeck uses
+the local Node binary pinned by `npm run install:opendeck`; the original macOS
+host uses Stream Deck’s managed Node 20 runtime. See the [README](../README.md).
 
 ## Architecture
 
@@ -15,7 +15,8 @@ plugin runs on the Stream Deck app's managed Node 20 runtime. Start with
         └── TCP ──► codexbar serve (LCD usage)
 
 src/
-  plugin.ts          entry: connect, load config, start services
+  opendeck.ts        native WebSocket host: 15-key Orca queue, N1 buttons/knob
+  plugin.ts          original macOS entry: connect, load config, start services
   runtime.ts         shared store/services/focus-backends + macOS foregrounding
   config.ts          defaults + defensive resolveConfig()
   core/              dependency-free, unit-tested, no SDK import
@@ -35,13 +36,20 @@ com.mrshu.muxboard.sdPlugin/   manifest, layouts, imgs, built bin
 
 ### Orca agent state
 
-The Orca source derives attention from a worktree's primary agent `state`,
-rather than its top-level `status`. Worktree status reports terminal liveness
-(PTY alive → `active`), so an agent waiting on a question or a finished unread
-result can still belong to an active worktree. Muxboard uses the agent lifecycle
-and worktree unread flag to distinguish those cases.
+The Orca source joins `worktree ps` agent lifecycle rows to connected entries
+from `terminal list` using `worktreeId` and `tabId:leafId`. Every agent gets
+its own stable entity key, including agents sharing a worktree. Historical
+agents without live terminals disappear. Live agents without lifecycle data
+(including floating terminals) show unknown state, not fabricated activity.
+Focus refreshes the terminal inventory and switches the exact stored handle;
+a closed or replaced pane produces an error instead of focusing a neighbor.
 
-## The device profile
+## The device profiles
+
+For OpenDeck, `node scripts/opendeck-profile.mjs n1-DEVICE_SERIAL` creates a
+new Muxboard profile with 15 keys and three encoder positions. Close OpenDeck
+first, then restart and select it. Existing profiles are never overwritten.
+The original macOS installer below remains separate from the OpenDeck host.
 
 `scripts/install-profile.mjs` writes a Muxboard profile straight into the Stream
 Deck app's `ProfilesV3` store (the app's own V3 format, keyed to the connected
