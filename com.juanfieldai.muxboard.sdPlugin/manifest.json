@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "Name": "Muxboard",
+  "Version": "0.2.0.0",
+  "Author": "Juan FieldAI",
+  "UUID": "com.juanfieldai.muxboard",
+  "Icon": "imgs/plugin/icon",
+  "Description": "OpenDeck dashboard for Orca-hosted coding agents, including Claude, Codex, OMP, and OpenCode.",
+  "Category": "Muxboard",
+  "CategoryIcon": "imgs/plugin/category",
+  "CodePath": "bin/opendeck",
+  "SDKVersion": 2,
+  "Nodejs": {
+    "Version": "24"
+  },
+  "Actions": [
+    {
+      "Name": "Agent Slot",
+      "UUID": "com.juanfieldai.muxboard.agent",
+      "Icon": "imgs/actions/attention/icon",
+      "Tooltip": "Shows Orca agent worktrees. Press to focus; hold to snooze locally. OFF marks stale cached data while Orca is unavailable.",
+      "Controllers": [
+        "Keypad"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/attention/key",
+          "TitleAlignment": "middle",
+          "ShowTitle": false
+        }
+      ]
+    },
+    {
+      "Name": "Agent Controls",
+      "UUID": "com.juanfieldai.muxboard.controls",
+      "Icon": "imgs/actions/dial/icon",
+      "Tooltip": "Button A cycles agents; Button B toggles Decisions; rotate the knob to scroll and press it to reset filters.",
+      "Controllers": [
+        "Encoder"
+      ],
+      "States": [
+        {
+          "Image": "imgs/actions/dial/key",
+          "TitleAlignment": "middle",
+          "ShowTitle": false
+        }
+      ],
+      "Encoder": {
+        "Icon": "imgs/actions/dial/icon",
+        "TriggerDescription": {
+          "Rotate": "Adjust agent filter or scroll",
+          "Push": "Toggle Decisions or reset filters",
+          "Touch": "Reset filters"
+        }
+      }
+    }
+  ],
+  "OS": [
+    {
+      "Platform": "linux"
+    }
+  ]
+}

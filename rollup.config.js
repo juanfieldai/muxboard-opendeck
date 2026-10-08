@@ -2,24 +2,20 @@ import commonjs from "@rollup/plugin-commonjs";
 import nodeResolve from "@rollup/plugin-node-resolve";
 import typescript from "@rollup/plugin-typescript";
 
-const sdPlugin = "com.mrshu.muxboard.sdPlugin";
+const openDeck = process.env.OPDECK === "true";
+const pluginDirectory = openDeck ? "com.juanfieldai.muxboard.sdPlugin" : "com.mrshu.muxboard.sdPlugin";
+const input = openDeck ? "src/opendeck.ts" : "src/plugin.ts";
+const output = openDeck ? "bin/opendeck.cjs" : "bin/plugin.cjs";
 
-/**
- * Bundles the plugin into a single CommonJS file the Stream Deck app launches.
- * Only src/plugin.ts and what it imports are bundled; core/ is dependency-free
- * and separately unit-tested via tsx without this build step.
- */
 export default {
-  input: "src/plugin.ts",
+  input,
   output: {
-    // .cjs so Node treats it as CommonJS regardless of package.json "type":
-    // "module" (which is set for the ESM source/tests/scripts).
-    file: `${sdPlugin}/bin/plugin.cjs`,
+    file: `${pluginDirectory}/${output}`,
     format: "cjs",
     sourcemap: true,
   },
   plugins: [
-    typescript({ tsconfig: "./tsconfig.json" }),
+    typescript({ tsconfig: "./tsconfig.json", outDir: `${pluginDirectory}/bin` }),
     nodeResolve({ browser: false, exportConditions: ["node"], preferBuiltins: true }),
     commonjs(),
   ],

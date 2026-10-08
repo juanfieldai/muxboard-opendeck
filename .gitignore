@@ -9,3 +9,4 @@ out/
 .streamDeck/
 *.tgz
 *.streamDeckPlugin
+*.plugin.zip
