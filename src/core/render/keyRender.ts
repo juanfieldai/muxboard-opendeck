@@ -99,11 +99,11 @@ export function renderKey(item: AttentionItem, opts: KeyRenderOptions): string {
               ? "blocked"
               : item.needsInput
                 ? "needs"
-                : item.source === "herdr" && item.reason === "finished"
+                : item.source !== "cmux" && item.reason === "finished"
                   ? "finished"
-                  : item.source === "herdr" && item.reason === "unknown"
+                  : item.source !== "cmux" && item.reason === "unknown"
                     ? "unknown"
-                : "waiting"
+                    : "waiting"
     ];
 
   // Urgent states own the border in their own color; anything else falls back to

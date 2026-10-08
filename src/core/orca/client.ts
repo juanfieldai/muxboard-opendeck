@@ -2,11 +2,14 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { AttentionItem } from "../types.js";
 import { type CommandRunner, execEnv, installDirs, resolveBin } from "../exec.js";
-import { normalizeWorktrees } from "./normalize.js";
+import { normalizeWorktrees, type RawOrcaTerminal } from "./normalize.js";
 
 const execFileAsync = promisify(execFile);
-
 const ORCA_DIRS = installDirs("/Applications/Orca.app/Contents/Resources/bin");
+
+export function defaultOrcaBin(): string {
+  return process.env.ORCA_CLI_COMMAND || (process.env.ORCA_DEV_REPO_ROOT ? "orca-dev" : process.platform === "linux" ? "orca-ide" : "orca");
+}
 
 const defaultRunner: CommandRunner = async (bin, args) => {
   const { stdout, stderr } = await execFileAsync(bin, args, {
@@ -29,13 +32,6 @@ interface OrcaEnvelope<T> {
   error?: { code?: unknown; message?: unknown };
 }
 
-/**
- * Parse an `orca` CLI JSON envelope and return its result, throwing on a logical
- * failure. The CLI exits 0 even on errors, signaling them only via `ok:false`,
- * so a caller that ignored `ok` would treat an error envelope as success — an
- * empty attention list that clobbers the last-good slice, or a "focus" that
- * silently did nothing. Best-effort callers (reachable) catch instead.
- */
 function requireOk<T>(stdout: string, what: string): OrcaEnvelope<T> {
   let env: OrcaEnvelope<T>;
   try {
@@ -43,46 +39,42 @@ function requireOk<T>(stdout: string, what: string): OrcaEnvelope<T> {
   } catch {
     throw new Error(`orca ${what}: non-JSON response`);
   }
-  if (env.ok !== true) {
-    const detail = env.error
-      ? `${String(env.error.code ?? "")} ${String(env.error.message ?? "")}`.trim()
-      : "ok:false";
+  if (!env || typeof env !== "object" || env.ok !== true) {
+    const detail = env?.error ? `${String(env.error.code ?? "")} ${String(env.error.message ?? "")}`.trim() : "ok:false";
     throw new Error(`orca ${what} failed: ${detail}`);
   }
   return env;
 }
 
-/** Like requireOk but also requires a present `result` (commands we read from). */
 function unwrap<T>(stdout: string, what: string): T {
   const env = requireOk<T>(stdout, what);
   if (env.result == null) throw new Error(`orca ${what}: missing result`);
   return env.result;
 }
 
-/** Thin best-effort wrapper over the `orca` CLI. */
 export class OrcaClient {
   private readonly bin: string;
   private readonly runner: CommandRunner;
   private readonly now: () => number;
 
   constructor(opts: OrcaClientOptions = {}) {
-    this.bin = resolveBin(opts.bin ?? "orca", ORCA_DIRS);
+    this.bin = resolveBin(opts.bin ?? defaultOrcaBin(), ORCA_DIRS);
     this.runner = opts.runner ?? defaultRunner;
-    this.now = opts.now ?? (() => Date.now());
+    this.now = opts.now ?? Date.now;
   }
 
-  /** Poll `worktree ps` and normalize to attention items. */
   async listAttention(): Promise<AttentionItem[]> {
-    const { stdout } = await this.runner(this.bin, ["worktree", "ps", "--json"]);
-    const result = unwrap<{ worktrees?: unknown }>(stdout, "worktree ps");
-    if (!Array.isArray(result.worktrees)) {
-      throw new Error("orca worktree ps: result.worktrees is not an array");
-    }
-    const nowIso = new Date(this.now()).toISOString();
-    return normalizeWorktrees(result.worktrees, nowIso);
+    const [ps, list] = await Promise.all([
+      this.runner(this.bin, ["worktree", "ps", "--json"]),
+      this.runner(this.bin, ["terminal", "list", "--json"]),
+    ]);
+    const { worktrees } = unwrap<{ worktrees?: unknown }>(ps.stdout, "worktree ps");
+    const { terminals } = unwrap<{ terminals?: unknown }>(list.stdout, "terminal list");
+    if (!Array.isArray(worktrees)) throw new Error("orca worktree ps: worktrees is not an array");
+    if (!Array.isArray(terminals)) throw new Error("orca terminal list: terminals is not an array");
+    return normalizeWorktrees(worktrees, new Date(this.now()).toISOString(), terminals);
   }
 
-  /** True when `orca status` reports a reachable runtime. */
   async reachable(): Promise<boolean> {
     try {
       const { stdout } = await this.runner(this.bin, ["status", "--json"]);
@@ -92,39 +84,18 @@ export class OrcaClient {
     }
   }
 
-  /**
-   * Focus an Orca worktree: resolve its most-recently-active terminal handle
-   * and switch to it. There is no worktree-focus verb, so we go via a terminal.
-   */
+  /** Never substitute a newer neighboring terminal for the pane on the pressed key. */
   async focus(item: AttentionItem): Promise<void> {
-    // Scope the lookup to this worktree server-side (verified to accept the
-    // composite worktree id) so a busy runtime doesn't return every terminal,
-    // then re-filter defensively.
-    const { stdout } = await this.runner(this.bin, [
-      "terminal",
-      "list",
-      "--worktree",
-      `id:${item.workspaceId}`,
-      "--json",
-    ]);
-    const result = unwrap<{ terminals?: RawTerminal[] }>(stdout, "terminal list");
-    const terminals = (result.terminals ?? []).filter((t) => t.worktreeId === item.workspaceId);
-    if (terminals.length === 0) throw new Error(`no live terminal for worktree ${item.workspaceId}`);
-    const handle = terminals.reduce((a, b) => ((b.lastOutputAt ?? 0) > (a.lastOutputAt ?? 0) ? b : a)).handle;
-    if (!handle) throw new Error(`no terminal handle for worktree ${item.workspaceId}`);
-    const { stdout: focusOut } = await this.runner(this.bin, [
-      "terminal",
-      "focus",
-      "--terminal",
-      handle,
-      "--json",
-    ]);
-    requireOk(focusOut, "terminal focus");
+    const handle = item.orca?.terminalHandle;
+    if (!handle) throw new Error(`no terminal identity for ${item.id}`);
+    const { stdout } = await this.runner(this.bin, ["terminal", "list", "--json"]);
+    const { terminals } = unwrap<{ terminals?: RawOrcaTerminal[] }>(stdout, "terminal list");
+    if (!Array.isArray(terminals)) throw new Error("orca terminal list: terminals is not an array");
+    const live = terminals.find(t => t && t.handle === handle && t.connected === true && t.worktreeId === item.workspaceId);
+    if (!live || (item.orca?.paneKey && `${live.tabId}:${live.leafId}` !== item.orca.paneKey)) {
+      throw new Error(`terminal closed or replaced: ${handle}`);
+    }
+    const switched = await this.runner(this.bin, ["terminal", "switch", "--terminal", handle, "--json"]);
+    requireOk(switched.stdout, "terminal switch");
   }
-}
-
-interface RawTerminal {
-  handle?: string;
-  worktreeId?: string;
-  lastOutputAt?: number;
 }

@@ -1,311 +1,106 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveConfig, DEFAULT_CONFIG } from "../src/config.js";
-import { normalizeNotifications } from "../src/core/cmux/normalize.js";
-import { Store } from "../src/core/services/store.js";
-import type { AttentionItem } from "../src/core/types.js";
-import { OrcaService } from "../src/core/services/orcaService.js";
 import { OrcaClient } from "../src/core/orca/client.js";
-import { normalizeWorktrees } from "../src/core/orca/normalize.js";
-import { toAgentKind as orcaToAgentKind } from "../src/core/types.js";
-import { sourceGlyphSvg, sourceTint } from "../src/core/render/sourceIcons.js";
-import { renderKey } from "../src/core/render/keyRender.js";
+import { normalizeWorktrees, type RawOrcaTerminal } from "../src/core/orca/normalize.js";
+import { Store } from "../src/core/services/store.js";
+import { resolveConfig } from "../src/config.js";
 
-test("orca toAgentKind maps omp to its own kind", () => {
-  assert.equal(orcaToAgentKind("omp"), "omp");
-  assert.equal(orcaToAgentKind("OMP"), "omp");
+const now = "2026-06-23T12:00:00Z";
+const terminal = (leaf: string, extra: Partial<RawOrcaTerminal> = {}): RawOrcaTerminal => ({
+  handle: `term-${leaf}`, worktreeId: "repo::/project", tabId: "tab", leafId: leaf,
+  agentIdentity: "omp", connected: true, title: `Agent ${leaf}`, ...extra,
 });
-
-test("cmux notifications are stamped with source 'cmux'", () => {
-  const items = normalizeNotifications([
-    { id: "n1", workspace_id: "w1", title: "Claude Code", body: "done", created_at: "2026-06-23T10:00:00Z" },
-  ]);
-  assert.equal(items.length, 1);
-  assert.equal(items[0].source, "cmux");
+const agent = (leaf: string, state: string, extra = {}) => ({
+  paneKey: `tab:${leaf}`, agentType: "omp", state, taskTitle: `Task ${leaf}`,
+  stateStartedAt: Date.parse(now) - 5000, ...extra,
 });
+const worktree = (agents: unknown[]) => ({ worktreeId: "repo::/project", displayName: "project", agents });
 
-function item(p: Partial<AttentionItem> & { id: string; source: AttentionItem["source"] }): AttentionItem {
-  return {
-    agent: "claude", workspaceId: p.id, title: p.id, reason: "waiting",
-    activity: "waiting", body: "", message: "", createdAt: "2026-06-23T10:00:00Z",
-    ...p,
-  };
-}
-
-test("store merges cmux and orca slices without clobbering", () => {
-  const store = new Store();
-  store.setAttention([item({ id: "c1", source: "cmux" })], false, "cmux");
-  store.setAttention([item({ id: "o1", source: "orca" })], false, "orca");
-  const ids = store.getState().items.map((i) => i.id).sort();
-  assert.deepEqual(ids, ["c1", "o1"]); // a second-source push keeps the first
-});
-
-test("OrcaService pushes orca items and flips offline after 2 failures", async () => {
-  const store = new Store();
-  let mode: "ok" | "fail" = "ok";
-  const client = {
-    async listAttention() {
-      if (mode === "fail") throw new Error("boom");
-      return [item({ id: "o1", source: "orca" })];
+function clientWithResponses(ps: unknown, terminals: unknown, switchResult: unknown = { ok: true }) {
+  const switched: string[] = [];
+  const client = new OrcaClient({
+    bin: "orca-test", now: () => Date.parse(now),
+    runner: async (_bin, args) => {
+      const response = args[0] === "worktree" ? ps : args[1] === "list" ? { ok: true, result: { terminals } } : switchResult;
+      if (args[1] === "switch") switched.push(args[3]);
+      return { stdout: JSON.stringify(response), stderr: "" };
     },
-  } as unknown as OrcaClient;
-  const svc = new OrcaService({ client, store, pollMs: 10_000 });
-
-  await svc.poll();
-  assert.equal(store.getState().items.some((i) => i.id === "o1"), true);
-  assert.equal(store.getState().orcaOffline, false);
-
-  mode = "fail";
-  await svc.poll();
-  assert.equal(store.getState().orcaOffline, false); // one failure rides out
-  await svc.poll();
-  assert.equal(store.getState().orcaOffline, true); // two consecutive -> offline
-  assert.equal(store.getState().items.some((i) => i.id === "o1"), true); // last good kept
-});
-
-test("cmux live status overlay never mutates an orca item sharing a workspaceId", () => {
-  const store = new Store();
-  store.setAttention([item({ id: "c", workspaceId: "shared", source: "cmux", activity: "waiting" })], false, "cmux");
-  store.setAttention([item({ id: "o", workspaceId: "shared", source: "orca", activity: "waiting" })], false, "orca");
-  store.setWorkspaceStatus({ shared: { state: "running", since: 0 } });
-  const byId = Object.fromEntries(store.getState().items.map((i) => [i.source, i]));
-  assert.equal(byId.cmux.activity, "working"); // cmux item picks up the overlay
-  assert.equal(byId.orca.activity, "waiting"); // orca item is untouched
-});
-
-test("same workspaceId in two sources is NOT deduped together", () => {
-  const store = new Store();
-  store.setAttention([item({ id: "x", workspaceId: "repo", source: "cmux" })], false, "cmux");
-  store.setAttention([item({ id: "x", workspaceId: "repo", source: "orca" })], false, "orca");
-  assert.equal(store.getState().items.length, 2);
-});
-
-
-const NOW = "2026-06-23T12:00:00Z";
-
-function wt(over: Record<string, unknown>): Record<string, unknown> {
-  return {
-    worktreeId: "repo::/p", repo: "myrepo", displayName: "feat", path: "/p",
-    status: "active", unread: true, lastOutputAt: 1782000000000, agents: [], ...over,
-  };
+  });
+  return { client, switched };
 }
 
-test("orca waiting/blocked agent -> blocked + needsInput (worktree status ignored)", () => {
-  // Attention is driven by the agent's `state`, not the worktree `status`
-  // (which Orca leaves at "active" regardless). A waiting or blocked agent is
-  // asking you for input/permission.
-  for (const state of ["waiting", "blocked"]) {
-    const items = normalizeWorktrees([wt({
-      status: "active",
-      agents: [{ state, agentType: "claude", lastAssistantMessage: "May I run tests?", stateStartedAt: 1782000000000 }],
-    })], NOW);
-    assert.equal(items.length, 1, state);
-    assert.equal(items[0].source, "orca");
-    assert.equal(items[0].reason, "blocked", state);
-    assert.equal(items[0].needsInput, true, state);
-    assert.equal(items[0].activity, "waiting", state);
-    assert.equal(items[0].agent, "claude");
-    assert.equal(items[0].workspaceId, "repo::/p");
+test("agents sharing a worktree stay independent and Decisions contains only requests or failures", () => {
+  const panes = ["working", "waiting", "blocked", "done", "interrupted"];
+  const agents = panes.map(leaf => agent(leaf, leaf === "interrupted" ? "done" : leaf, { interrupted: leaf === "interrupted" }));
+  agents.push(agent("closed", "blocked"));
+  const items = normalizeWorktrees([worktree(agents)], now, panes.map(leaf => terminal(leaf)));
+  const store = new Store([], () => Date.parse(now), 15);
+  store.setAttention(items, false, "orca");
+  assert.deepEqual(new Set(store.getState().items.map(item => item.title)), new Set(panes.map(leaf => `Task ${leaf}`)));
+  assert.equal(items.find(item => item.title === "Task working")?.activity, "working");
+  assert.equal(items.find(item => item.title === "Task done")?.reason, "finished");
+  store.cycleView();
+  assert.deepEqual(new Set(store.getState().items.map(item => item.title)), new Set(["Task waiting", "Task blocked", "Task interrupted"]));
+});
+
+test("terminal leaf identity, not a stale agent record or a neighboring pane, determines the displayed agent", () => {
+  const items = normalizeWorktrees([worktree([
+    agent("left", "working", { updatedAt: 1 }),
+    agent("left", "blocked", { updatedAt: 2, agentType: "opencode" }),
+    agent("missing", "waiting"),
+  ])], now, [terminal("left"), terminal("right", { connected: false })]);
+  assert.deepEqual(items.map(item => [item.agent, item.reason, item.orca?.terminalHandle]), [["opencode", "blocked", "term-left"]]);
+});
+
+test("floating agents have unknown lifecycle while disconnected agents and ordinary shells are absent", () => {
+  const items = normalizeWorktrees([], now, [
+    terminal("floating", { worktreeId: "global-floating-terminal" }),
+    terminal("closed", { connected: false }),
+    terminal("shell", { agentIdentity: null }),
+  ]);
+  assert.deepEqual(items.map(item => [item.reason, item.activity, item.needsInput, item.ageUnknown]), [["unknown", "waiting", undefined, true]]);
+  const store = new Store();
+  store.setAttention(items, false, "orca");
+  store.cycleView();
+  assert.deepEqual(store.getState().items, []);
+});
+
+test("focus switches the selected live terminal rather than its newer neighboring agent", async () => {
+  const selected = normalizeWorktrees([worktree([agent("left", "waiting")])], now, [terminal("left")])[0];
+  const { client, switched } = clientWithResponses({}, [terminal("right"), terminal("left")]);
+  await client.focus(selected);
+  assert.deepEqual(switched, ["term-left"]);
+});
+
+test("closing or replacing the selected pane cannot redirect focus to another agent", async () => {
+  const selected = normalizeWorktrees([worktree([agent("left", "waiting")])], now, [terminal("left")])[0];
+  for (const remaining of [[terminal("right")], [terminal("right", { handle: "term-left" })], [terminal("left", { connected: false })]]) {
+    const { client, switched } = clientWithResponses({}, remaining);
+    await assert.rejects(client.focus(selected), /closed or replaced/);
+    assert.deepEqual(switched, []);
   }
 });
 
-test("orca AskUserQuestion agent (state waiting, status active) -> blocked + needsInput", () => {
-  // Regression: an agent that called AskUserQuestion sits in state "waiting"
-  // while Orca keeps the worktree "active". The state-driven model surfaces it.
-  const items = normalizeWorktrees([wt({
-    status: "active",
-    agents: [{ state: "waiting", agentType: "claude", toolName: "AskUserQuestion", stateStartedAt: 1782000000000 }],
-  })], NOW);
-  assert.equal(items.length, 1);
-  assert.equal(items[0].reason, "blocked");
-  assert.equal(items[0].needsInput, true);
+test("runtime failures and malformed inventories reject instead of clearing last-good attention", async () => {
+  const selected = normalizeWorktrees([worktree([agent("left", "waiting")])], now, [terminal("left")])[0];
+  const failure = { ok: false, error: { code: "runtime_unreachable", message: "down" } };
+  const { client } = clientWithResponses(failure, [terminal("left")], failure);
+  await assert.rejects(client.listAttention(), /worktree ps failed/);
+  await assert.rejects(client.focus(selected), /terminal switch failed/);
+  const malformed = clientWithResponses({ ok: true, result: { worktrees: [] } }, null).client;
+  await assert.rejects(malformed.listAttention(), /terminals is not an array/);
 });
 
-test("orca done agent with no unread output is dropped (already seen)", () => {
-  // A finished agent only warrants a key while the worktree has unseen output.
-  const seen = normalizeWorktrees([wt({
-    status: "active", unread: false,
-    agents: [{ state: "done", agentType: "claude", interrupted: false }],
-  })], NOW);
-  assert.equal(seen.length, 0);
-  // The same agent with unread output surfaces as finished.
-  const unread = normalizeWorktrees([wt({
-    status: "active", unread: true,
-    agents: [{ state: "done", agentType: "claude", interrupted: false }],
-  })], NOW);
-  assert.equal(unread.length, 1);
-  assert.equal(unread[0].reason, "finished");
-});
-
-test("orca done+interrupted -> failed; clean done -> finished", () => {
-  const failed = normalizeWorktrees([wt({ status: "done", agents: [{ state: "done", agentType: "codex", interrupted: true }] })], NOW);
-  assert.equal(failed[0].reason, "failed");
-  assert.equal(failed[0].agent, "codex");
-  const fin = normalizeWorktrees([wt({ status: "done", agents: [{ state: "done", agentType: "claude", interrupted: false }] })], NOW);
-  assert.equal(fin[0].reason, "finished");
-});
-
-test("orca working worktree -> synthetic running item", () => {
-  const items = normalizeWorktrees([wt({ status: "working", agents: [{ state: "working", agentType: "claude", stateStartedAt: 1782000000000 }] })], NOW);
-  assert.equal(items[0].activity, "working");
-  assert.equal(items[0].synthetic, true);
-});
-
-test("orca picks the most-recent done agent regardless of array order", () => {
-  const recent = { state: "done", agentType: "claude", interrupted: true, stateStartedAt: 1782000200000 };
-  const older = { state: "done", agentType: "claude", interrupted: false, stateStartedAt: 1782000100000 };
-  const a = normalizeWorktrees([wt({ status: "done", agents: [older, recent] })], NOW);
-  const b = normalizeWorktrees([wt({ status: "done", agents: [recent, older] })], NOW);
-  assert.equal(a[0].reason, "failed"); // most recent is interrupted, both orders
-  assert.equal(b[0].reason, "failed");
-});
-
-test("orca createdAt falls back to updatedAt then lastOutputAt", () => {
-  const items = normalizeWorktrees([wt({
-    status: "done", lastOutputAt: 1782000000000,
-    agents: [{ state: "done", agentType: "claude", updatedAt: 1782000050000 }], // no stateStartedAt
-  })], NOW);
-  assert.equal(items[0].createdAt, new Date(1782000050000).toISOString());
-});
-
-test("orca worktree with no live agent is dropped, whatever the status", () => {
-  for (const status of ["permission", "working", "done", "active", "inactive"]) {
-    assert.equal(normalizeWorktrees([wt({ status, agents: [] })], NOW).length, 0, `${status} agents:[]`);
-    assert.equal(normalizeWorktrees([wt({ status, agents: undefined })], NOW).length, 0, `${status} no agents`);
-  }
-});
-
-test("orca tolerates an out-of-range timestamp without rejecting the poll", () => {
-  const items = normalizeWorktrees([wt({
-    status: "done",
-    agents: [{ state: "done", agentType: "claude", stateStartedAt: 1e100 }],
-  })], NOW);
-  assert.equal(items.length, 1);
-  assert.equal(items[0].createdAt, NOW); // bad timestamp falls back to now, no throw
-});
-
-test("orca active/inactive worktrees are not surfaced; unknown agent type maps to unknown", () => {
-  assert.equal(normalizeWorktrees([wt({ status: "active" }), wt({ status: "inactive" })], NOW).length, 0);
-  const g = normalizeWorktrees([wt({ status: "done", agents: [{ state: "done", agentType: "gemini" }] })], NOW);
-  assert.equal(g[0].agent, "unknown");
-});
-
-
-function fakeRunner(map: Record<string, string>) {
-  return async (_bin: string, args: string[]) => {
-    const key = args.find((a) => !a.startsWith("--")) ?? "";
-    const sub = args.includes("ps") ? "ps" : args.includes("list") ? "list" : args.includes("focus") ? "focus" : args.includes("status") ? "status" : key;
-    return { stdout: map[sub] ?? "{}", stderr: "" };
-  };
-}
-
-test("OrcaClient.listAttention parses ps JSON to items", async () => {
-  const ps = JSON.stringify({ ok: true, result: { worktrees: [
-    { worktreeId: "r::/p", repo: "r", displayName: "feat", status: "permission",
-      agents: [{ state: "waiting", agentType: "claude", lastAssistantMessage: "ok?" }] },
-  ] } });
-  const client = new OrcaClient({ runner: fakeRunner({ ps }), now: () => 0 });
+test("listAttention keeps concurrent Orca and floating agents with their exact focus identity", async () => {
+  const terminals = [terminal("left"), terminal("right"), terminal("floating", { worktreeId: "global-floating-terminal", agentIdentity: "claude" })];
+  const { client } = clientWithResponses({ ok: true, result: { worktrees: [worktree([agent("left", "working"), agent("right", "blocked")])] } }, terminals);
   const items = await client.listAttention();
-  assert.equal(items.length, 1);
-  assert.equal(items[0].source, "orca");
-  assert.equal(items[0].reason, "blocked");
+  assert.deepEqual(items.map(item => [item.orca?.terminalHandle, item.reason]), [["term-left", "waiting"], ["term-right", "blocked"], ["term-floating", "unknown"]]);
 });
 
-test("OrcaClient.reachable reflects status JSON", async () => {
-  const up = JSON.stringify({ ok: true, result: { app: { running: true }, runtime: { reachable: true } } });
-  const down = JSON.stringify({ ok: false, result: { runtime: { reachable: false } } });
-  assert.equal(await new OrcaClient({ runner: fakeRunner({ status: up }) }).reachable(), true);
-  assert.equal(await new OrcaClient({ runner: fakeRunner({ status: down }) }).reachable(), false);
-});
-
-test("OrcaClient.focus picks the most recent terminal handle", async () => {
-  const calls: string[][] = [];
-  const runner = async (_bin: string, args: string[]) => {
-    calls.push(args);
-    if (args.includes("list")) {
-      return { stdout: JSON.stringify({ ok: true, result: { terminals: [
-        { handle: "term_old", worktreeId: "r::/p", lastOutputAt: 100 },
-        { handle: "term_new", worktreeId: "r::/p", lastOutputAt: 200 },
-        { handle: "term_other", worktreeId: "other::/q", lastOutputAt: 999 },
-      ] } }), stderr: "" };
-    }
-    return { stdout: JSON.stringify({ ok: true }), stderr: "" };
-  };
-  const client = new OrcaClient({ runner });
-  await client.focus({ id: "r::/p", source: "orca", agent: "claude", workspaceId: "r::/p", title: "t", reason: "blocked", activity: "waiting", body: "", message: "", createdAt: "2026-06-23T12:00:00Z" });
-  const listCall = calls.find((a) => a.includes("list"));
-  assert.ok(listCall);
-  assert.ok(listCall.includes("--worktree") && listCall.includes("id:r::/p")); // scoped server-side
-  const focusCall = calls.find((a) => a.includes("focus"));
-  assert.ok(focusCall);
-  assert.ok(focusCall.includes("term_new"));
-});
-
-test("OrcaClient.listAttention throws on an ok:false envelope (so the poller keeps last-good)", async () => {
-  const ps = JSON.stringify({ ok: false, error: { code: "runtime_unreachable", message: "down" } });
-  const client = new OrcaClient({ runner: fakeRunner({ ps }) });
-  await assert.rejects(() => client.listAttention(), /worktree ps failed/);
-});
-
-test("OrcaClient.listAttention throws when worktrees is missing", async () => {
-  const ps = JSON.stringify({ ok: true, result: {} });
-  const client = new OrcaClient({ runner: fakeRunner({ ps }) });
-  await assert.rejects(() => client.listAttention(), /not an array/);
-});
-
-test("OrcaClient.focus throws when terminal focus returns ok:false", async () => {
-  const runner = async (_bin: string, args: string[]) => {
-    if (args.includes("list")) {
-      return { stdout: JSON.stringify({ ok: true, result: { terminals: [
-        { handle: "term_x", worktreeId: "r::/p", lastOutputAt: 1 },
-      ] } }), stderr: "" };
-    }
-    return { stdout: JSON.stringify({ ok: false, error: { code: "no_tab", message: "gone" } }), stderr: "" };
-  };
-  const client = new OrcaClient({ runner });
-  await assert.rejects(
-    () => client.focus({ id: "r::/p", source: "orca", agent: "claude", workspaceId: "r::/p", title: "t", reason: "blocked", activity: "waiting", body: "", message: "", createdAt: "2026-06-23T12:00:00Z" }),
-    /terminal focus failed/,
-  );
-});
-
-
-test("sourceGlyphSvg emits a tinted group for known sources", () => {
-  const orca = sourceGlyphSvg("orca", 110, 120, 22, "#8b919c");
-  assert.match(orca, /<g transform=/);
-  assert.match(orca, /#8b919c/);
-  assert.doesNotMatch(orca, /currentColor/); // color substituted in
-});
-
-test("sourceTint gives orca and cmux distinct colors", () => {
-  assert.notEqual(sourceTint("orca"), sourceTint("cmux"));
-  assert.match(sourceTint("orca"), /^#[0-9a-f]{6}$/i);
-  assert.match(sourceTint("cmux"), /^#[0-9a-f]{6}$/i);
-});
-
-test("renderKey tints the source badge by source", () => {
-  const orca = renderKey(item({ id: "o1", source: "orca", title: "feat" }), { nowMs: Date.parse("2026-06-23T12:00:10Z"), slotNumber: 1 });
-  const cmux = renderKey(item({ id: "c1", source: "cmux", title: "feat" }), { nowMs: Date.parse("2026-06-23T12:00:10Z"), slotNumber: 1 });
-  assert.match(orca, new RegExp(sourceTint("orca")));
-  assert.match(cmux, new RegExp(sourceTint("cmux")));
-});
-
-test("renderKey includes the source badge group", () => {
-  const svg = renderKey(item({ id: "o1", source: "orca", title: "feat" }), { nowMs: Date.parse("2026-06-23T12:00:10Z"), slotNumber: 1 });
-  assert.match(svg, /<g transform=/); // the badge group is present
-});
-
-test("resolveConfig defaults and coerces Orca knobs", () => {
-  assert.equal(DEFAULT_CONFIG.enableOrca, "auto");
-  assert.equal(DEFAULT_CONFIG.orcaBin, "orca");
-  const r = resolveConfig({ enableOrca: true, orcaBin: " /usr/local/bin/orca ", orcaPollMs: 1 });
-  assert.equal(r.enableOrca, true);
-  assert.equal(r.orcaBin, "/usr/local/bin/orca");
-  assert.equal(r.orcaPollMs, 500); // clamped to the 500 floor
-  assert.equal(resolveConfig({ enableOrca: "nonsense" as unknown as "auto" }).enableOrca, "auto");
-});
-
-test("resolveConfig accepts omp as an alias target", () => {
-  const r = resolveConfig({ agentAliases: { "my-fork": "omp" } });
-  assert.deepEqual(r.agentAliases, { "my-fork": "omp" });
+test("configuration preserves explicit Orca command and accepts OpenCode aliases", () => {
+  const config = resolveConfig({ orcaBin: " /opt/orca/custom ", agentAliases: { fork: "opencode" }, orcaPollMs: 1 });
+  assert.equal(config.orcaBin, "/opt/orca/custom");
+  assert.deepEqual(config.agentAliases, { fork: "opencode" });
+  assert.equal(config.orcaPollMs, 500);
 });

@@ -21,6 +21,7 @@ const AGENT_THEMES: Record<AgentKind, AgentTheme> = {
   omp: { bg: ["#33142a", "#1f0a19"], accent: "#e070bd", fg: "#f7e6f1", glyph: "Ω" },
   // Pi: purple.
   pi: { bg: ["#241433", "#140a1f"], accent: "#a779e0", fg: "#efe6f7", glyph: "π" },
+  opencode: { bg: ["#122b38", "#071922"], accent: "#69b8e0", fg: "#e2f2fa", glyph: "O" },
   // Unknown: neutral grey.
   unknown: { bg: ["#222428", "#141518"], accent: "#7d828c", fg: "#e6e8ec", glyph: "?" },
 };

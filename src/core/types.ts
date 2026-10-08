@@ -5,19 +5,19 @@
  * built-ins) so it can be unit-tested and rendered headlessly with tsx.
  */
 
-export type AgentKind = "claude" | "codex" | "omp" | "pi" | "unknown";
+export type AgentKind = "claude" | "codex" | "omp" | "pi" | "opencode" | "unknown";
 
 /** A JSON field as a string, or "" when it is absent or the wrong type. */
 export const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /**
  * Map a backend's agent id (cmux's canonical `coding_agents[].id`, Orca's
- * `agentType`) to our AgentKind: claude/codex/pi/omp get branded visuals,
+ * `agentType`) to our AgentKind: known agents get distinct visuals,
  * everything else renders as a neutral "unknown".
  */
 export function toAgentKind(id: string): AgentKind {
   const k = id.toLowerCase().trim();
-  return k === "claude" || k === "codex" || k === "pi" || k === "omp" ? k : "unknown";
+  return k === "claude" || k === "codex" || k === "pi" || k === "omp" || k === "opencode" ? k : "unknown";
 }
 
 /** Which backend an attention item originates from. */
@@ -46,8 +46,8 @@ export type AttentionReason =
 /** A single pane/worktree/terminal that needs the user's attention. */
 export interface AttentionItem {
   /**
-   * Unique item id and focus key. For cmux: the notification uuid. For Orca:
-   * the worktree id (a composite `repoId::path`, not a uuid).
+   * Unique item id. Orca combines worktree and pane identity, so agents in
+   * the same repository remain independently selectable.
    */
   id: string;
   /** The backend this item came from. */
@@ -58,6 +58,8 @@ export interface AttentionItem {
   entityKey?: string;
   /** Native Herdr target, separate from its stable machine/server/terminal identity. */
   herdr?: { session: string; terminalId: string; paneId: string; machineId?: string };
+  /** Exact Orca agent pane and terminal identity used for focus. */
+  orca?: { paneKey?: string; terminalHandle?: string };
   /** Short repo/workspace name, derived from cmux tab_title. */
   repo?: string;
   /** Human-facing label for the key. */
@@ -227,3 +229,5 @@ export interface AppState {
   /** True when CodexBar serve is unreachable. */
   codexbarOffline: boolean;
 }
+
+

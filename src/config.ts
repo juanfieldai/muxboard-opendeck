@@ -1,4 +1,5 @@
 import type { AgentKind } from "./core/types.js";
+import { defaultOrcaBin } from "./core/orca/client.js";
 
 /**
  * Muxboard configuration, persisted via the plugin's global settings.
@@ -71,7 +72,7 @@ export const DEFAULT_CONFIG: MuxboardConfig = {
   // fallback (name substring → agent) for cases that can't be detected.
   agentAliases: {},
   busyCpuPercent: 40,
-  orcaBin: "orca",
+  orcaBin: defaultOrcaBin(),
   orcaPollMs: 1500,
   enableOrca: "auto",
   herdrBin: "herdr",
@@ -83,7 +84,7 @@ export const DEFAULT_CONFIG: MuxboardConfig = {
   herdrMachinePollMs: 15000,
 };
 
-const ALL_AGENTS: AgentKind[] = ["claude", "codex", "omp", "pi", "unknown"];
+const ALL_AGENTS: AgentKind[] = ["claude", "codex", "omp", "pi", "opencode", "unknown"];
 
 /**
  * Merge partial (possibly user-supplied) settings over the defaults, coercing
